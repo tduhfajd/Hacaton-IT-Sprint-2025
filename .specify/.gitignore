@@ -1,0 +1,36 @@
+# Specify workflow .gitignore
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Cache files
+.cache/
+cache/
+
+# Logs
+*.log
+logs/
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated files (if any)
+generated/
+auto-generated/
+
+# User-specific files
+user-config.json
+personal-notes.md

@@ -1,0 +1,752 @@
+openapi: 3.0.3
+info:
+  title: Implementation Planning Workflow API
+  description: API specification for the implementation planning workflow automation
+  version: 1.0.0
+  contact:
+    name: Speckit Workflow
+    email: workflow@speckit.dev
+
+servers:
+  - url: /specs/{feature-branch}
+    description: Feature-specific workflow endpoints
+
+paths:
+  /setup:
+    post:
+      summary: Initialize planning workflow
+      description: Sets up the planning workflow for a feature branch
+      parameters:
+        - name: feature-branch
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]{3}-[a-z-]+$'
+          description: Feature branch name (e.g., 001-feature-name)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                json_mode:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Setup completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  FEATURE_SPEC:
+                    type: string
+                    description: Path to feature specification file
+                  IMPL_PLAN:
+                    type: string
+                    description: Path to implementation plan file
+                  SPECS_DIR:
+                    type: string
+                    description: Path to specs directory
+                  BRANCH:
+                    type: string
+                    description: Current branch name
+                  HAS_GIT:
+                    type: string
+                    description: Whether git repository is available
+        '400':
+          description: Invalid feature branch name
+        '500':
+          description: Setup failed
+
+  /constitution-check:
+    post:
+      summary: Validate constitution compliance
+      description: Validates compliance with Speckit Constitution
+      parameters:
+        - name: feature-branch
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]{3}-[a-z-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConstitutionCheckRequest'
+      responses:
+        '200':
+          description: Constitution check completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConstitutionCheckResponse'
+        '400':
+          description: Invalid request
+        '422':
+          description: Constitution violations found
+
+  /research:
+    post:
+      summary: Generate research document
+      description: Creates research.md to resolve all NEEDS CLARIFICATION items
+      parameters:
+        - name: feature-branch
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]{3}-[a-z-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchRequest'
+      responses:
+        '200':
+          description: Research document generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchResponse'
+        '400':
+          description: Invalid request
+        '422':
+          description: Unresolved clarifications remain
+
+  /design:
+    post:
+      summary: Generate design artifacts
+      description: Creates data-model.md, contracts/, and quickstart.md
+      parameters:
+        - name: feature-branch
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]{3}-[a-z-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DesignRequest'
+      responses:
+        '200':
+          description: Design artifacts generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DesignResponse'
+        '400':
+          description: Invalid request
+        '422':
+          description: Design generation failed
+
+  /agent-context:
+    post:
+      summary: Update agent context
+      description: Updates AI agent context with new technology choices
+      parameters:
+        - name: feature-branch
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]{3}-[a-z-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentContextRequest'
+      responses:
+        '200':
+          description: Agent context updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentContextResponse'
+        '400':
+          description: Invalid request
+        '500':
+          description: Context update failed
+
+  /gigachat/analyze:
+    post:
+      summary: Analyze citizen appeal using GigaChat
+      description: Analyzes citizen appeal for category, priority, and sentiment
+      security:
+        - GigaChatAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GigaChatAnalyzeRequest'
+      responses:
+        '200':
+          description: Appeal analyzed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GigaChatAnalyzeResponse'
+        '400':
+          description: Invalid request
+        '401':
+          description: GigaChat authentication failed
+        '500':
+          description: GigaChat service error
+
+  /gigachat/generate-response:
+    post:
+      summary: Generate response using GigaChat and knowledge base
+      description: Generates contextual response based on appeal and knowledge base
+      security:
+        - GigaChatAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GigaChatGenerateRequest'
+      responses:
+        '200':
+          description: Response generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GigaChatGenerateResponse'
+        '400':
+          description: Invalid request
+        '401':
+          description: GigaChat authentication failed
+        '500':
+          description: GigaChat service error
+
+  /knowledge-base/search:
+    post:
+      summary: Search knowledge base for relevant information
+      description: Performs RAG search in knowledge base for relevant chunks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgeSearchRequest'
+      responses:
+        '200':
+          description: Search completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeSearchResponse'
+        '400':
+          description: Invalid request
+        '500':
+          description: Knowledge base error
+
+components:
+  schemas:
+    ConstitutionCheckRequest:
+      type: object
+      required:
+        - feature_spec
+      properties:
+        feature_spec:
+          $ref: '#/components/schemas/FeatureSpecification'
+        constitution_version:
+          type: string
+          default: "1.0.0"
+
+    ConstitutionCheckResponse:
+      type: object
+      properties:
+        passed:
+          type: boolean
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConstitutionViolation'
+        gates:
+          type: object
+          properties:
+            specification_first:
+              type: boolean
+            template_driven:
+              type: boolean
+            independent_testability:
+              type: boolean
+            clarity:
+              type: boolean
+            phased_execution:
+              type: boolean
+
+    ConstitutionViolation:
+      type: object
+      required:
+        - principle
+        - justification
+        - alternatives_rejected
+      properties:
+        principle:
+          type: string
+          enum: [specification_first, template_driven, independent_testability, clarity, phased_execution]
+        justification:
+          type: string
+        alternatives_rejected:
+          type: string
+        rationale:
+          type: string
+
+    ResearchRequest:
+      type: object
+      required:
+        - feature_spec
+        - technical_context
+      properties:
+        feature_spec:
+          $ref: '#/components/schemas/FeatureSpecification'
+        technical_context:
+          $ref: '#/components/schemas/TechnicalContext'
+
+    ResearchResponse:
+      type: object
+      properties:
+        research_document:
+          type: string
+          description: Path to generated research.md
+        resolved_clarifications:
+          type: array
+          items:
+            type: string
+        research_tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchTask'
+
+    DesignRequest:
+      type: object
+      required:
+        - feature_spec
+        - research_document
+      properties:
+        feature_spec:
+          $ref: '#/components/schemas/FeatureSpecification'
+        research_document:
+          type: string
+          description: Path to research.md
+
+    DesignResponse:
+      type: object
+      properties:
+        data_model:
+          type: string
+          description: Path to generated data-model.md
+        contracts:
+          type: array
+          items:
+            type: string
+          description: Paths to generated contract files
+        quickstart:
+          type: string
+          description: Path to generated quickstart.md
+
+    AgentContextRequest:
+      type: object
+      required:
+        - technology_choices
+      properties:
+        technology_choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/TechnologyChoice'
+        agent_type:
+          type: string
+          enum: [cursor-agent, vscode-agent, other]
+
+    AgentContextResponse:
+      type: object
+      properties:
+        updated_files:
+          type: array
+          items:
+            type: string
+        agent_type:
+          type: string
+        success:
+          type: boolean
+
+    TechnologyChoice:
+      type: object
+      required:
+        - name
+        - version
+        - category
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        category:
+          type: string
+          enum: [language, framework, library, tool, database, platform]
+        description:
+          type: string
+
+    FeatureSpecification:
+      type: object
+      required:
+        - branch_name
+        - user_stories
+        - functional_requirements
+        - success_criteria
+      properties:
+        branch_name:
+          type: string
+          pattern: '^[0-9]{3}-[a-z-]+$'
+        created_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [draft, review, approved]
+        user_stories:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserStory'
+        functional_requirements:
+          type: array
+          items:
+            $ref: '#/components/schemas/FunctionalRequirement'
+        success_criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/SuccessCriterion'
+        edge_cases:
+          type: array
+          items:
+            type: string
+
+    UserStory:
+      type: object
+      required:
+        - id
+        - title
+        - priority
+        - description
+        - independent_test
+        - acceptance_scenarios
+      properties:
+        id:
+          type: string
+          pattern: '^US[0-9]+$'
+        title:
+          type: string
+        priority:
+          type: string
+          enum: [P1, P2, P3, P4]
+        description:
+          type: string
+        independent_test:
+          type: string
+        acceptance_scenarios:
+          type: array
+          items:
+            $ref: '#/components/schemas/AcceptanceScenario'
+        rationale:
+          type: string
+
+    AcceptanceScenario:
+      type: object
+      required:
+        - given
+        - when
+        - then
+      properties:
+        given:
+          type: string
+        when:
+          type: string
+        then:
+          type: string
+
+    FunctionalRequirement:
+      type: object
+      required:
+        - id
+        - description
+      properties:
+        id:
+          type: string
+          pattern: '^FR-[0-9]{3}$'
+        description:
+          type: string
+        clarity_status:
+          type: string
+          enum: [clear, needs_clarification]
+        clarification_note:
+          type: string
+
+    SuccessCriterion:
+      type: object
+      required:
+        - id
+        - metric
+        - target_value
+        - measurement_method
+      properties:
+        id:
+          type: string
+          pattern: '^SC-[0-9]{3}$'
+        metric:
+          type: string
+        target_value:
+          type: string
+        measurement_method:
+          type: string
+
+    TechnicalContext:
+      type: object
+      required:
+        - language_version
+        - primary_dependencies
+        - storage
+        - testing_framework
+        - target_platform
+        - project_type
+        - performance_goals
+        - constraints
+        - scale_scope
+      properties:
+        language_version:
+          type: string
+        primary_dependencies:
+          type: array
+          items:
+            type: string
+        storage:
+          type: string
+        testing_framework:
+          type: string
+        target_platform:
+          type: string
+        project_type:
+          type: string
+          enum: [single, web, mobile]
+        performance_goals:
+          type: string
+        constraints:
+          type: string
+        scale_scope:
+          type: string
+
+    ResearchTask:
+      type: object
+      required:
+        - question
+        - decision
+        - rationale
+      properties:
+        question:
+          type: string
+        decision:
+          type: string
+        rationale:
+          type: string
+        alternatives_considered:
+          type: array
+          items:
+            type: string
+        impact:
+          type: string
+
+    GigaChatAnalyzeRequest:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: Citizen appeal text to analyze
+        context:
+          type: string
+          description: Additional context for analysis
+        language:
+          type: string
+          default: "ru"
+          description: Language of the text
+
+    GigaChatAnalyzeResponse:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [blagooustroystvo, elektrosnabzhenie, teplosnabzhenie, vodosnabzhenie, musor, plata-za-zhku, socialnaya-gazifikatsiya, mnogokvartirnye-doma, parki-kultury-i-otdykha, inoe]
+        priority:
+          type: string
+          enum: [критично, высокий, средний, низкий]
+        sentiment:
+          type: string
+          enum: [позитивная, нейтральная, негативная, агрессивная]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        suggested_response:
+          type: string
+          description: AI-generated suggested response
+
+    GigaChatGenerateRequest:
+      type: object
+      required:
+        - query
+        - knowledge_context
+      properties:
+        query:
+          type: string
+          description: User query or appeal
+        knowledge_context:
+          type: array
+          items:
+            $ref: '#/components/schemas/KnowledgeChunk'
+        tone:
+          type: string
+          enum: [официальный, дружелюбный, строгий]
+          default: "официальный"
+        max_length:
+          type: integer
+          default: 500
+
+    GigaChatGenerateResponse:
+      type: object
+      properties:
+        response:
+          type: string
+          description: Generated response text
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        sources:
+          type: array
+          items:
+            type: string
+          description: Knowledge base sources used
+
+    KnowledgeSearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: Search query
+        categories:
+          type: array
+          items:
+            type: string
+          description: Filter by specific categories
+        limit:
+          type: integer
+          default: 10
+          description: Maximum number of results
+
+    KnowledgeSearchResponse:
+      type: object
+      properties:
+        chunks:
+          type: array
+          items:
+            $ref: '#/components/schemas/KnowledgeChunk'
+        total_found:
+          type: integer
+        search_time:
+          type: number
+          description: Search execution time in milliseconds
+
+    KnowledgeChunk:
+      type: object
+      properties:
+        doc_id:
+          type: string
+        title:
+          type: string
+        text:
+          type: string
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        relevance_score:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    UIThemeRequest:
+      type: object
+      properties:
+        theme_name:
+          type: string
+          enum: [light, dark, auto]
+          default: auto
+        primary_color:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        custom_css:
+          type: string
+          description: Custom CSS variables
+
+    UIThemeResponse:
+      type: object
+      properties:
+        theme:
+          type: object
+          properties:
+            name:
+              type: string
+            colors:
+              type: object
+            fonts:
+              type: object
+            breakpoints:
+              type: object
+        css_variables:
+          type: object
+          description: Generated CSS custom properties
+
+    ResponsiveConfig:
+      type: object
+      properties:
+        mobile_breakpoint:
+          type: integer
+          default: 768
+        tablet_breakpoint:
+          type: integer
+          default: 1024
+        desktop_breakpoint:
+          type: integer
+          default: 1200
+        mobile_first:
+          type: boolean
+          default: true
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for internal service authentication
+    GigaChatAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: GigaChat access token obtained from OAuth endpoint

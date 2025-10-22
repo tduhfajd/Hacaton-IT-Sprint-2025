@@ -1,0 +1,37 @@
+{
+  "name": "citizen-support-system",
+  "version": "1.0.0",
+  "description": "Умный помощник для обработки обращений граждан",
+  "private": true,
+  "workspaces": [
+    "frontend/*",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "concurrently \"npm run dev:user\" \"npm run dev:operator\" \"npm run dev:admin\"",
+    "dev:user": "cd frontend/user && npm run dev",
+    "dev:operator": "cd frontend/operator && npm run dev",
+    "dev:admin": "cd frontend/admin && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "npm run build:user && npm run build:operator && npm run build:admin",
+    "build:user": "cd frontend/user && npm run build",
+    "build:operator": "cd frontend/operator && npm run build",
+    "build:admin": "cd frontend/admin && npm run build",
+    "install:all": "npm install && npm run install:backend && npm run install:frontend",
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "npm run install:user && npm run install:operator && npm run install:admin",
+    "install:user": "cd frontend/user && npm install",
+    "install:operator": "cd frontend/operator && npm install",
+    "install:admin": "cd frontend/admin && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

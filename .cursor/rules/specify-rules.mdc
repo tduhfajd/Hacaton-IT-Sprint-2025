@@ -1,0 +1,29 @@
+# it-support Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2025-10-22
+
+## Active Technologies
+
+- Bash 5.0+ (for script execution) + Git, standard Unix tools (sed, awk, grep), JSON processing (001-implementation-planning)
+
+## Project Structure
+
+```text
+src/
+tests/
+```
+
+## Commands
+
+# Add commands for Bash 5.0+ (for script execution)
+
+## Code Style
+
+Bash 5.0+ (for script execution): Follow standard conventions
+
+## Recent Changes
+
+- 001-implementation-planning: Added Bash 5.0+ (for script execution) + Git, standard Unix tools (sed, awk, grep), JSON processing
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->

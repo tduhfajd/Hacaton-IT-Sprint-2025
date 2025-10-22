@@ -1,0 +1,17 @@
+{
+  "clientId": "4564de21-0d1d-4524-b4e7-cc807691ea32",
+  "scope": "GIGACHAT_API_PERS",
+  "authKey": "NDU2NGRlMjEtMGQxZC00NTI0LWI0ZTctY2M4MDc2OTFlYTMyOmU4YmVhZGUwLWEzY2MtNDIzZS05N2Q3LWQxOGY4ODcyMmQzMw==",
+  "authEndpoint": "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
+  "apiEndpoint": "https://gigachat.devices.sberbank.ru/",
+  "tokenValidity": 1800000,
+  "maxTokens": 4000,
+  "temperature": 0.7,
+  "timeout": 30000,
+  "retryAttempts": 3,
+  "retryDelay": 1000,
+  "certificatesPath": "./certs",
+  "logLevel": "info",
+  "enableCache": true,
+  "cacheTtl": 3600000
+}

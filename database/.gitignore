@@ -1,0 +1,46 @@
+# Database specific .gitignore
+
+# Database files
+*.sqlite
+*.db
+*.sqlite3
+
+# Database dumps
+*.dump
+*.sql.gz
+*.backup
+
+# Migration files (keep structure, ignore data)
+migrations/data/
+migrations/backup/
+
+# Seed data (keep examples)
+seeds/data/
+!seeds/data/example-*
+
+# Database logs
+*.log
+
+# Temporary database files
+*.tmp
+*.temp
+
+# Database configuration (keep examples)
+config/database.json
+!config/database.example.json
+
+# Backup files
+*.bak
+*.old
+
+# Database cache
+cache/
+.cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
