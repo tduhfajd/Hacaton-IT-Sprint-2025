@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { AppealController } from '../controllers/AppealController';
 import { AppealTrackingController } from '../controllers/AppealTrackingController';
 import { AppealModel } from '../models/Appeal';
@@ -66,6 +66,42 @@ router.get('/stats', appealController.getAppealStats);
 router.get('/:id', appealIdValidator, appealController.getAppealById);
 router.put('/:id', appealIdValidator, updateAppealValidators, appealController.updateAppeal);
 router.delete('/:id', appealIdValidator, appealController.deleteAppeal);
+
+// AI Response endpoint (public for operators)
+router.get('/:id/ai-response', appealIdValidator, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT ar.suggested_text, ar.confidence, ar.sources, ar.created_at,
+              aa.category_suggestion, aa.priority_suggestion
+       FROM ai_responses ar
+       LEFT JOIN appeal_analysis aa ON ar.appeal_id = aa.appeal_id
+       WHERE ar.appeal_id = $1
+       ORDER BY ar.created_at DESC
+       LIMIT 1`,
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No AI response available yet'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error: any) {
+    console.error('AI Response API Error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get AI response',
+      error: error.message
+    });
+  }
+});
 
 // Tracking operations
 router.get('/:id/tracking', appealIdValidator, trackingController.getTrackingInfo);
