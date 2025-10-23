@@ -1,6 +1,7 @@
 import Queue from 'bull';
 import { pool } from '../config/database';
 import { GigaChatService } from '../services/GigaChatService';
+import { FallbackAIService } from '../services/FallbackAIService';
 import { AppealAnalysisModel } from '../models/AppealAnalysis';
 import { logger } from '../utils/logger';
 
@@ -32,14 +33,45 @@ appealAnalysisQueue.process(async (job) => {
   logger.info('AI Worker: Starting analysis', { appealId, jobId: job.id });
   
   try {
-    const analysisModel = new AppealAnalysisModel(pool);
-    const gigaChatService = new GigaChatService(analysisModel);
+    let analysisResult: any;
+    let responseResult: any;
     
-    // Run AI analysis
-    const analysisResult = await gigaChatService.analyzeAppeal(appealId, subject, description);
-    
-    if (!analysisResult.success) {
-      throw new Error(`AI analysis failed: ${analysisResult.error}`);
+    // Try GigaChat first
+    try {
+      const analysisModel = new AppealAnalysisModel(pool);
+      const gigaChatService = new GigaChatService(analysisModel);
+      
+      analysisResult = await gigaChatService.analyzeAppeal(appealId, subject, description);
+      
+      if (!analysisResult.success) {
+        throw new Error(`GigaChat failed: ${analysisResult.error}`);
+      }
+      
+      logger.info('AI Worker: GigaChat analysis completed', { appealId });
+      
+      responseResult = await gigaChatService.generateResponse(appealId, `${subject}. ${description}`);
+      
+    } catch (gigachatError: any) {
+      // Fallback to simple AI
+      logger.warn('AI Worker: GigaChat unavailable, using fallback', { 
+        appealId, 
+        error: gigachatError.message 
+      });
+      
+      const fallbackAI = new FallbackAIService(pool);
+      
+      const analysis = await fallbackAI.analyzeAppeal(appealId, subject, description);
+      const response = await fallbackAI.generateResponse(appealId, `${subject}. ${description}`);
+      
+      analysisResult = { success: true, analysis };
+      responseResult = { success: true, response };
+      
+      logger.info('AI Worker: Fallback analysis completed', { 
+        appealId, 
+        category: analysis.category,
+        priority: analysis.priority,
+        sentiment: analysis.sentiment_type
+      });
     }
     
     logger.info('AI Worker: Analysis completed', { 
@@ -49,13 +81,7 @@ appealAnalysisQueue.process(async (job) => {
       sentiment: analysisResult.analysis?.sentiment_type
     });
     
-    // Generate suggested response based on KB
-    const responseResult = await gigaChatService.generateResponse(
-      appealId,
-      `${subject}. ${description}`
-    );
-    
-    if (responseResult.success) {
+    if (responseResult?.success) {
       logger.info('AI Worker: Response generated', { 
         appealId,
         hasResponse: !!responseResult.response
