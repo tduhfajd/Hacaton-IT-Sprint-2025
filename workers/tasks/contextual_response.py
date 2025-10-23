@@ -3,6 +3,7 @@ Celery Task: Contextual AI Response
 Генерирует ответ с учётом всей истории диалога
 """
 import os
+import re
 from celery_app import app
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -49,20 +50,19 @@ def contextual_response(appeal_id: str):
     
     # 5. Сгенерировать контекстный ответ
     if articles:
-        # Есть релевантная статья
+        # Есть релевантная статья - генерируем человекоподобный ответ
         article = articles[0]
-        suggested_text = f"""Здравствуйте!
-
-Учитывая вашу ситуацию, могу дополнить:
-
-{article['content'][:400]}
-
-Если у вас остались вопросы по этой или другим темам, пожалуйста, уточните.
-
-С уважением,
-Служба поддержки"""
-        confidence = 0.7
+        
+        # Используем ту же логику что и в generate_response
+        suggested_text = generate_contextual_human_response(
+            last_question=last_citizen_message['message'],
+            article_content=article['content'],
+            article_title=article['title']
+        )
+        
+        confidence = 0.75
         sources = [article['title']]
+        print(f"  ✅ Сгенерирован контекстный ответ на основе статьи '{article['title']}'")
     else:
         # Общий контекстный ответ
         suggested_text = f"""Здравствуйте!
@@ -75,6 +75,7 @@ def contextual_response(appeal_id: str):
 Служба поддержки"""
         confidence = 0.4
         sources = []
+        print(f"  ⚠️ Статьи не найдены, использован общий ответ")
     
     # 6. Сохранить контекстный ответ
     save_contextual_response(appeal_id, suggested_text, confidence, sources, len(chat_history))
@@ -87,6 +88,71 @@ def contextual_response(appeal_id: str):
         'confidence': confidence,
         'context_length': len(chat_history)
     }
+
+
+def generate_contextual_human_response(last_question: str, article_content: str, article_title: str) -> str:
+    """
+    Генерирует человекоподобный контекстный ответ
+    """
+    # Извлекаем ключевые слова из вопроса
+    keywords = [w.strip('.,!?;:').lower() for w in last_question.split() if len(w) > 3][:8]
+    
+    # Находим релевантные части статьи
+    relevant_parts = find_relevant_parts(article_content, keywords)
+    
+    if relevant_parts:
+        answer = f"""Здравствуйте!
+
+Отвечаю на ваш дополнительный вопрос:
+
+{relevant_parts}
+
+Если нужны ещё уточнения, пожалуйста, напишите.
+
+С уважением,
+Служба поддержки"""
+    else:
+        # Fallback - берём начало статьи
+        clean_content = re.sub(r'^#+\s+.+$', '', article_content, flags=re.MULTILINE)
+        preview = clean_content[:600]
+        last_dot = preview.rfind('.')
+        if last_dot > 200:
+            preview = preview[:last_dot + 1]
+        
+        answer = f"""Здравствуйте!
+
+По вашему дополнительному вопросу:
+
+{preview}
+
+Если требуется более детальная информация, уточните.
+
+С уважением,
+Служба поддержки"""
+    
+    return answer
+
+
+def find_relevant_parts(content: str, keywords: list) -> str:
+    """Находит релевантные части текста по ключевым словам"""
+    # Убираем заголовки
+    clean_content = re.sub(r'^#+\s+.+$', '', content, flags=re.MULTILINE)
+    paragraphs = [p.strip() for p in clean_content.split('\n') if p.strip() and len(p) > 50]
+    
+    # Ищем параграфы с ключевыми словами
+    scored = []
+    for para in paragraphs:
+        score = sum(1 for kw in keywords if kw in para.lower())
+        if score > 0:
+            clean_para = re.sub(r'\*\*(.+?)\*\*', r'\1', para)
+            clean_para = re.sub(r'^[\-\*]\s+', '', clean_para)
+            scored.append((score, clean_para))
+    
+    # Берём топ-2 самых релевантных
+    scored.sort(reverse=True, key=lambda x: x[0])
+    result = '\n\n'.join([p[1] for p in scored[:2]])
+    
+    return result if result else ''
 
 
 def get_chat_history(appeal_id: str) -> list:
@@ -135,26 +201,67 @@ def build_context_string(chat_history: list, appeal_info: dict) -> str:
 
 
 def search_knowledge_base_contextual(category: str, context: str) -> list:
-    """Поиск в базе знаний с учётом контекста"""
+    """
+    Поиск в ВСЕЙ базе знаний с учётом контекста диалога
+    Может найти статьи по любой теме, не только из категории обращения
+    """
     conn = psycopg2.connect(**DB_CONFIG)
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Извлечь ключевые слова из контекста
-            keywords = [word for word in context.lower().split() if len(word) > 4][:5]
+            # Извлечь ключевые слова из контекста диалога
+            keywords = [word.strip('.,!?;:').lower() for word in context.split() if len(word) > 3]
             
-            # Поиск по категории и ключевым словам
-            search_pattern = '%' + '%'.join(keywords[:3]) + '%' if keywords else f'%{category}%'
+            # Приоритезируем последние слова (свежий контекст)
+            keywords = keywords[-10:]  # Последние 10 ключевых слов
             
-            cur.execute("""
-                SELECT kb.id, kb.title, kb.content, c.name as category_name
+            if not keywords:
+                keywords = [category.lower()]
+            
+            # Строим условия поиска по всей БЗ
+            conditions = []
+            params = []
+            
+            # Добавляем условия для каждого ключевого слова
+            for word in keywords[:6]:  # Топ-6 слов
+                conditions.append("(kb.title ILIKE %s OR kb.content ILIKE %s OR %s = ANY(kb.tags) OR c.name ILIKE %s)")
+                params.extend([f'%{word}%', f'%{word}%', word, f'%{word}%'])
+            
+            where_clause = ' OR '.join(conditions) if conditions else "1=1"
+            
+            # Ранжируем результаты по релевантности
+            cur.execute(f"""
+                SELECT 
+                    kb.id, 
+                    kb.title, 
+                    kb.content, 
+                    c.name as category_name,
+                    (
+                        CASE WHEN kb.title ILIKE %s THEN 80 ELSE 0 END +
+                        CASE WHEN c.name ILIKE %s THEN 60 ELSE 0 END +
+                        CASE WHEN %s = ANY(kb.tags) THEN 50 ELSE 0 END +
+                        CASE WHEN kb.content ILIKE %s THEN 20 ELSE 0 END
+                    ) as relevance_score
                 FROM knowledge_base kb
                 LEFT JOIN categories c ON kb.category_id = c.id
                 WHERE kb.is_active = true 
-                AND (c.name ILIKE %s OR kb.title ILIKE %s OR kb.content ILIKE %s)
-                ORDER BY kb.created_at DESC
-                LIMIT 2
-            """, (f'%{category}%', search_pattern, search_pattern))
-            return cur.fetchall()
+                AND ({where_clause})
+                ORDER BY relevance_score DESC, kb.updated_at DESC
+                LIMIT 3
+            """, [
+                f'%{keywords[0]}%' if keywords else '%',  # первое слово в title
+                f'%{keywords[0]}%' if keywords else '%',  # первое слово в category
+                keywords[0] if keywords else '',  # первое слово в tags
+                f'%{keywords[0]}%' if keywords else '%',  # первое слово в content
+                *params  # параметры для WHERE
+            ])
+            
+            results = cur.fetchall()
+            
+            # Логируем что нашли
+            for r in results:
+                print(f"  📄 Контекстная статья: '{r['title']}' (score: {r.get('relevance_score', 0)})")
+            
+            return results
     finally:
         conn.close()
 

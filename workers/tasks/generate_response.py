@@ -182,36 +182,73 @@ def find_relevant_sections(article: str, keywords: list) -> list:
 
 
 def search_knowledge_base(category: str, text: str) -> list:
-    """Ищет релевантные статьи в базе знаний с улучшенным поиском"""
+    """
+    Ищет релевантные статьи в ВСЕЙ базе знаний с ранжированием
+    Не ограничивается категорией - ищет по всем статьям
+    """
     conn = psycopg2.connect(**DB_CONFIG)
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Извлекаем ключевые слова из текста (первые 3-5 значимых слов)
-            words = [w.strip('.,!?;:').lower() for w in text.split() if len(w) > 3][:5]
+            # Извлекаем ключевые слова из текста
+            words = [w.strip('.,!?;:').lower() for w in text.split() if len(w) > 3][:8]
             
-            # Поиск по категории (приоритет 1)
-            cur.execute("""
-                SELECT kb.id, kb.title, kb.content, c.name as category_name, 1 as relevance
+            if not words:
+                words = [category.lower()]
+            
+            # Строим запрос с ранжированием релевантности
+            # Приоритет 1: совпадение с категорией обращения
+            # Приоритет 2: совпадение ключевых слов в названии
+            # Приоритет 3: совпадение ключевых слов в тегах
+            # Приоритет 4: совпадение ключевых слов в содержании
+            
+            conditions = []
+            params = []
+            
+            # Категория (высший приоритет)
+            conditions.append("c.name ILIKE %s")
+            params.append(f'%{category}%')
+            
+            # Ключевые слова в разных полях
+            for word in words[:5]:  # Топ-5 слов
+                conditions.append(f"(kb.title ILIKE %s OR kb.content ILIKE %s OR %s = ANY(kb.tags))")
+                params.extend([f'%{word}%', f'%{word}%', word])
+            
+            where_clause = ' OR '.join(conditions)
+            
+            cur.execute(f"""
+                SELECT 
+                    kb.id, 
+                    kb.title, 
+                    kb.content, 
+                    c.name as category_name,
+                    -- Рассчитываем релевантность
+                    (
+                        CASE WHEN c.name ILIKE %s THEN 100 ELSE 0 END +
+                        CASE WHEN kb.title ILIKE %s THEN 50 ELSE 0 END +
+                        CASE WHEN kb.title ILIKE %s THEN 30 ELSE 0 END +
+                        CASE WHEN %s = ANY(kb.tags) THEN 40 ELSE 0 END +
+                        CASE WHEN kb.content ILIKE %s THEN 10 ELSE 0 END
+                    ) as relevance_score
                 FROM knowledge_base kb
                 LEFT JOIN categories c ON kb.category_id = c.id
-                WHERE kb.is_active = true AND c.name ILIKE %s
-                LIMIT 2
-            """, (f'%{category}%',))
-            results = list(cur.fetchall())
+                WHERE kb.is_active = true 
+                AND ({where_clause})
+                ORDER BY relevance_score DESC, kb.updated_at DESC
+                LIMIT 3
+            """, [
+                f'%{category}%',  # категория в score
+                f'%{words[0]}%' if words else '%',  # первое слово в title
+                f'%{words[1]}%' if len(words) > 1 else '%',  # второе слово в title
+                words[0] if words else '',  # первое слово в tags
+                f'%{words[0]}%' if words else '%',  # первое слово в content
+                *params  # параметры для WHERE
+            ])
             
-            # Если не нашли по категории, ищем по ключевым словам
-            if not results and words:
-                search_pattern = ' | '.join(words)  # PostgreSQL full-text search
-                cur.execute("""
-                    SELECT kb.id, kb.title, kb.content, c.name as category_name, 2 as relevance
-                    FROM knowledge_base kb
-                    LEFT JOIN categories c ON kb.category_id = c.id
-                    WHERE kb.is_active = true 
-                    AND (kb.title ILIKE %s OR kb.content ILIKE %s OR %s = ANY(kb.tags))
-                    ORDER BY kb.created_at DESC
-                    LIMIT 2
-                """, (f'%{words[0]}%', f'%{words[0]}%', words[0]))
-                results = list(cur.fetchall())
+            results = cur.fetchall()
+            
+            # Логируем релевантность
+            for r in results:
+                print(f"  📄 Найдена статья: '{r['title']}' (релевантность: {r.get('relevance_score', 0)})")
             
             return results
     finally:
