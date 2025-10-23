@@ -135,6 +135,53 @@ services:
       timeout: 3s
       retries: 3
 
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: smart-support-rabbitmq
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=SmartSupport2025!
+      - VIRTUAL_HOST=rabbitmq-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_PORT=15672
+      - LETSENCRYPT_HOST=rabbitmq-smartsupport.vadimevgrafov.ru
+      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - backend-net
+      - nginx-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker (Python)
+  celery-worker:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    container_name: smart-support-celery-worker
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=SmartSupport2025!
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=smart_assistant
+      - DB_USER=user
+      - DB_PASSWORD=StrongPasswordChange2025!
+    networks:
+      - backend-net
+    depends_on:
+      - rabbitmq
+      - db
+    command: celery -A celery_app worker --loglevel=info --concurrency=2
+
   # Documentation & Files Server
   docs:
     image: nginx:alpine
@@ -155,6 +202,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  rabbitmq_data:
     driver: local
 
 networks:

@@ -7,9 +7,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { ChatService } from './services/ChatService';
-import { appealAnalysisQueue } from './queues/appealAnalysis'; // Initialize queue and worker
-// Force queue initialization by accessing it
-console.log('✅ Queue loaded:', appealAnalysisQueue.name);
+import { rabbitMQService } from './services/RabbitMQService';
 
 // Load environment variables
 dotenv.config();
@@ -278,7 +276,7 @@ app.use('*', (_req, res) => {
 });
 
 // Start server (use httpServer instead of app.listen to support WebSocket)
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 API status: http://localhost:${PORT}/api/status`);
@@ -294,5 +292,14 @@ httpServer.listen(PORT, () => {
   console.log(`   - Admin: http://localhost:${PORT}/api/admin/test`);
   console.log(`   - Files: http://localhost:${PORT}/api/files/test`);
   console.log(`\n🌐 Environment: ${process.env['NODE_ENV'] || 'development'}`);
+  
+  // Initialize RabbitMQ connection
+  try {
+    await rabbitMQService.connect();
+    console.log('✅ RabbitMQ connected for task queueing');
+  } catch (error: any) {
+    console.error('❌ RabbitMQ connection failed:', error.message);
+    console.error('   AI processing will not work until RabbitMQ is available');
+  }
 });
 

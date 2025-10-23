@@ -3,7 +3,7 @@ import { pool } from '../config/database';
 import { AppealModel, CreateAppealData, UpdateAppealData, AppealFilters } from '../models/Appeal';
 import { logger } from '../utils/logger';
 import { validationResult } from 'express-validator';
-import { appealAnalysisQueue } from '../queues/appealAnalysis';
+import { rabbitMQService } from '../services/RabbitMQService';
 
 export class AppealController {
   constructor(private appealModel: AppealModel) {}
@@ -60,16 +60,13 @@ export class AppealController {
         userId: req.user?.userId 
       });
       
-      // Enqueue AI analysis job
+      // Enqueue AI analysis and response generation via RabbitMQ
       try {
-        await appealAnalysisQueue.add({
-          appealId: appeal.id,
-          subject: appealData.subject,
-          description: appealData.description
-        });
-        logger.info('Appeal queued for AI analysis', { appealId: appeal.id });
+        await rabbitMQService.enqueueAppealAnalysis(appeal.id, appealData.subject, appealData.description);
+        await rabbitMQService.enqueueResponseGeneration(appeal.id, appealData.subject, appealData.description);
+        logger.info('Appeal queued for AI processing (RabbitMQ)', { appealId: appeal.id });
       } catch (queueError: any) {
-        logger.error('Failed to queue AI analysis', { 
+        logger.error('Failed to queue AI processing', { 
           appealId: appeal.id, 
           error: queueError.message 
         });

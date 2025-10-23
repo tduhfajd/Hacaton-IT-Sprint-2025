@@ -1,0 +1,16 @@
+# Celery + RabbitMQ
+celery[amqp]==5.3.4
+kombu==5.3.4
+
+# Database
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# AI/ML
+gigachat==0.1.28
+openai==1.6.1
+
+# Utils
+python-dotenv==1.0.0
+requests==2.31.0
+
