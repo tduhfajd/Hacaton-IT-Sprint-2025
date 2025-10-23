@@ -7,7 +7,9 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { ChatService } from './services/ChatService';
-import './queues/appealAnalysis'; // Initialize queue and worker
+import { appealAnalysisQueue } from './queues/appealAnalysis'; // Initialize queue and worker
+// Force queue initialization by accessing it
+console.log('✅ Queue loaded:', appealAnalysisQueue.name);
 
 // Load environment variables
 dotenv.config();

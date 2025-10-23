@@ -5,7 +5,7 @@ import { FallbackAIService } from '../services/FallbackAIService';
 import { AppealAnalysisModel } from '../models/AppealAnalysis';
 import { logger } from '../utils/logger';
 
-const REDIS_URL = process.env['REDIS_URL'] || 'redis://localhost:6379';
+const REDIS_URL = process.env['REDIS_URL'] || 'redis://redis:6379';
 
 export interface AppealAnalysisJob {
   appealId: string;
@@ -25,6 +25,8 @@ export const appealAnalysisQueue = new Queue<AppealAnalysisJob>('appeal-analysis
     removeOnFail: false
   }
 });
+
+logger.info('Appeal Analysis Queue initialized', { redisUrl: REDIS_URL });
 
 // Worker processor
 appealAnalysisQueue.process(async (job) => {
