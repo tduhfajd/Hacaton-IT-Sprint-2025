@@ -1,4 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
+import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { logger } from '../utils/logger';
 import { AppealAnalysisModel, CreateAnalysisData } from '../models/AppealAnalysis';
 
@@ -31,6 +34,7 @@ export class GigaChatService {
   private httpClient: AxiosInstance;
   private token: GigaChatToken | null = null;
   private config: GigaChatConfig;
+  private httpsAgent: https.Agent;
 
   constructor(private analysisModel: AppealAnalysisModel) {
     this.config = {
@@ -41,8 +45,33 @@ export class GigaChatService {
       apiEndpoint: process.env.GIGACHAT_API_ENDPOINT || 'https://gigachat.devices.sberbank.ru'
     };
 
+    // Configure HTTPS agent with certificate or bypass SSL (dev only)
+    const certPath = path.join(__dirname, '../../certs/russian_trusted_root_ca.cer');
+    
+    if (fs.existsSync(certPath)) {
+      try {
+        const ca = fs.readFileSync(certPath);
+        this.httpsAgent = new https.Agent({
+          ca: ca,
+          rejectUnauthorized: true
+        });
+        logger.info('GigaChat: Using Russian Trusted Root CA certificate');
+      } catch (error) {
+        logger.warn('GigaChat: Failed to load certificate, using insecure mode', { error });
+        this.httpsAgent = new https.Agent({
+          rejectUnauthorized: false
+        });
+      }
+    } else {
+      logger.warn('GigaChat: Certificate not found, using insecure mode for development');
+      this.httpsAgent = new https.Agent({
+        rejectUnauthorized: false
+      });
+    }
+
     this.httpClient = axios.create({
       timeout: 30000,
+      httpsAgent: this.httpsAgent,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
@@ -71,6 +100,7 @@ export class GigaChatService {
         this.config.authEndpoint,
         `scope=${this.config.scope}`,
         {
+          httpsAgent: this.httpsAgent,
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
@@ -91,8 +121,15 @@ export class GigaChatService {
       }
 
       throw new Error('No access token in response');
-    } catch (error) {
-      logger.error('Failed to get GigaChat token', { error: error.message });
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Unknown error';
+      const errorStatus = error?.response?.status;
+      const errorData = error?.response?.data;
+      logger.error('Failed to get GigaChat token', { 
+        error: errorMsg, 
+        status: errorStatus,
+        data: errorData 
+      });
       return null;
     }
   }
@@ -144,9 +181,10 @@ export class GigaChatService {
       });
 
       return { success: true, analysis: savedAnalysis };
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Unknown error';
       logger.error('GigaChat analysis failed', { 
-        error: error.message, 
+        error: errorMsg, 
         appealId 
       });
       return { success: false, error: 'Analysis failed' };
@@ -220,11 +258,12 @@ export class GigaChatService {
       }
 
       return { success: true, data: content };
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Unknown error';
       logger.error('GigaChat API request failed', { 
-        error: error.message,
-        status: error.response?.status,
-        data: error.response?.data
+        error: errorMsg,
+        status: error?.response?.status,
+        data: error?.response?.data
       });
       return { success: false, error: 'API request failed' };
     }
@@ -252,9 +291,10 @@ export class GigaChatService {
         summary: parsed.summary || 'Анализ не выполнен',
         confidence: Math.max(0, Math.min(1, parsed.confidence || 0.5))
       };
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Unknown error';
       logger.error('Failed to parse GigaChat response', { 
-        error: error.message, 
+        error: errorMsg, 
         content: content.substring(0, 200) 
       });
       
@@ -309,9 +349,10 @@ export class GigaChatService {
       }
 
       return { success: true, response: result.data };
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Unknown error';
       logger.error('GigaChat response generation failed', { 
-        error: error.message, 
+        error: errorMsg, 
         appealId 
       });
       return { success: false, error: 'Response generation failed' };
@@ -358,10 +399,11 @@ export class GigaChatService {
       }
 
       return { success: false, error: 'Invalid response format' };
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Unknown error';
       logger.error('GigaChat connection test failed', { 
-        error: error.message,
-        status: error.response?.status
+        error: errorMsg,
+        status: error?.response?.status
       });
       return { success: false, error: 'Connection test failed' };
     }

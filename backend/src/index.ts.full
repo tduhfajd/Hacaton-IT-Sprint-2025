@@ -1,0 +1,107 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+import dotenv from 'dotenv';
+import 'express-async-errors';
+
+// Import routes
+import healthRoutes from './routes/health';
+import authRoutes from './routes/auth';
+import appealRoutes from './routes/appeals';
+import aiRoutes from './routes/ai';
+import chatRoutes from './routes/chat';
+import operatorRoutes from './routes/operators';
+import adminRoutes from './routes/admin';
+import fileRoutes from './routes/files';
+
+// Import error handlers
+import { errorHandler } from './middleware/errorHandler';
+import { notFoundHandler } from './middleware/notFoundHandler';
+
+// Load environment variables
+dotenv.config();
+
+const app = express();
+const PORT = process.env['PORT'] || 3001;
+
+// Security middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env['CORS_ORIGINS']?.split(',') || [
+    'http://localhost:3000',
+    'http://localhost:3002',
+    'http://localhost:3003',
+    'https://user-smartsupport.vadimevgrafov.ru',
+    'https://operator-smartsupport.vadimevgrafov.ru',
+    'https://admin-smartsupport.vadimevgrafov.ru'
+  ],
+  credentials: true
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use('/api', limiter);
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Compression
+app.use(compression());
+
+// Logging
+app.use(morgan('combined'));
+
+// API Routes
+app.use('/health', healthRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/appeals', appealRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/operators', operatorRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/files', fileRoutes);
+
+// Basic API endpoint
+app.get('/api/status', (_req, res) => {
+  res.json({ 
+    message: 'Smart Assistant API is running!',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/health',
+      auth: '/api/auth',
+      appeals: '/api/appeals',
+      ai: '/api/ai',
+      chat: '/api/chat',
+      operators: '/api/operators',
+      admin: '/api/admin',
+      files: '/api/files'
+    }
+  });
+});
+
+// Error handling
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔗 API status: http://localhost:${PORT}/api/status`);
+  console.log(`\n📚 Available endpoints:`);
+  console.log(`   - Auth: http://localhost:${PORT}/api/auth`);
+  console.log(`   - Appeals: http://localhost:${PORT}/api/appeals`);
+  console.log(`   - AI: http://localhost:${PORT}/api/ai`);
+  console.log(`   - Chat: http://localhost:${PORT}/api/chat`);
+  console.log(`   - Operators: http://localhost:${PORT}/api/operators`);
+  console.log(`   - Admin: http://localhost:${PORT}/api/admin`);
+  console.log(`   - Files: http://localhost:${PORT}/api/files`);
+});

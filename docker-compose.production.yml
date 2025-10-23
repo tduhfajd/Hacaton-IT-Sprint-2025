@@ -1,0 +1,164 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: smart-support-backend
+    restart: unless-stopped
+    environment:
+      - VIRTUAL_HOST=api-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_PORT=3001
+      - LETSENCRYPT_HOST=api-smartsupport.vadimevgrafov.ru
+      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - WEBSOCKET=true
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=postgresql://user:StrongPasswordChange2025!@db:5432/smart_assistant
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=smart_assistant
+      - DB_USER=user
+      - DB_PASSWORD=StrongPasswordChange2025!
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=your-very-strong-secret-key-change-in-production-2025
+      - GIGACHAT_CLIENT_ID=4564de21-0d1d-4524-b4e7-cc807691ea32
+      - GIGACHAT_AUTH_KEY=NDU2NGRlMjEtMGQxZC00NTI0LWI0ZTctY2M4MDc2OTFlYTMyOmU4YmVhZGUwLWEzY2MtNDIzMC05N2Q3LWQxOGY4ODcyMmQzMw==
+      - API_URL=https://api-smartsupport.vadimevgrafov.ru
+      - FRONTEND_URL=https://user-smartsupport.vadimevgrafov.ru
+      - CORS_ORIGINS=https://user-smartsupport.vadimevgrafov.ru,https://operator-smartsupport.vadimevgrafov.ru,https://admin-smartsupport.vadimevgrafov.ru
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./files:/app/files
+      - ./backend/certs:/app/certs:ro
+    networks:
+      - nginx-net
+      - backend-net
+    depends_on:
+      - db
+      - redis
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+
+  # Frontend - User Interface
+  frontend-user:
+    build:
+      context: ./frontend/user
+      dockerfile: Dockerfile
+    container_name: smart-support-frontend-user
+    restart: unless-stopped
+    environment:
+      - VIRTUAL_HOST=user-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_PORT=80
+      - LETSENCRYPT_HOST=user-smartsupport.vadimevgrafov.ru
+      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+    networks:
+      - nginx-net
+    depends_on:
+      - backend
+
+  # Frontend - Operator Dashboard
+  frontend-operator:
+    build:
+      context: ./frontend/operator
+      dockerfile: Dockerfile
+    container_name: smart-support-frontend-operator
+    restart: unless-stopped
+    environment:
+      - VIRTUAL_HOST=operator-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_PORT=80
+      - LETSENCRYPT_HOST=operator-smartsupport.vadimevgrafov.ru
+      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+    networks:
+      - nginx-net
+    depends_on:
+      - backend
+
+  # Frontend - Admin Panel
+  frontend-admin:
+    build:
+      context: ./frontend/admin
+      dockerfile: Dockerfile
+    container_name: smart-support-frontend-admin
+    restart: unless-stopped
+    environment:
+      - VIRTUAL_HOST=admin-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_PORT=80
+      - LETSENCRYPT_HOST=admin-smartsupport.vadimevgrafov.ru
+      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+    networks:
+      - nginx-net
+    depends_on:
+      - backend
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: smart-support-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=smart_assistant
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=StrongPasswordChange2025!
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d smart_assistant"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: smart-support-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Documentation & Files Server
+  docs:
+    image: nginx:alpine
+    container_name: smart-support-docs
+    restart: unless-stopped
+    environment:
+      - VIRTUAL_HOST=docs-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_PORT=80
+      - LETSENCRYPT_HOST=docs-smartsupport.vadimevgrafov.ru
+      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+    volumes:
+      - ./static:/usr/share/nginx/html:ro
+      # Use default nginx config inside image; custom config removed due to context errors
+    networks:
+      - nginx-net
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  nginx-net:
+    external: true
+  backend-net:
+    driver: bridge

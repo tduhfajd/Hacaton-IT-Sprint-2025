@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
+import { pool } from '../config/database';
 import { AppealModel, CreateAppealData, UpdateAppealData, AppealFilters } from '../models/Appeal';
 import { logger } from '../utils/logger';
 import { validationResult } from 'express-validator';
+import { appealAnalysisQueue } from '../queues/appealAnalysis';
 
 export class AppealController {
   constructor(private appealModel: AppealModel) {}
@@ -19,9 +21,33 @@ export class AppealController {
         return;
       }
 
+      // Ensure anonymous citizen user exists for this appeal when no auth
+      let citizenUserId: string | null = req.user?.userId || null;
+      if (!citizenUserId) {
+        const fullName: string = req.body.full_name || req.body.fullName || 'Гражданин';
+        const emailRaw: string = req.body.email || '';
+        const generatedEmail = emailRaw && typeof emailRaw === 'string'
+          ? emailRaw
+          : `guest-${Date.now()}-${Math.random().toString(36).slice(2,8)}@guest.local`;
+        const phone: string | null = req.body.phone || null;
+        // Try find existing by email, else create minimal citizen user
+        const existing = await pool.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [generatedEmail]);
+        if (existing.rowCount && existing.rows[0]?.id) {
+          citizenUserId = existing.rows[0].id;
+        } else {
+          const created = await pool.query(
+            `INSERT INTO users (email, password_hash, full_name, phone, role, is_active)
+             VALUES ($1, $2, $3, $4, 'citizen', true)
+             RETURNING id`,
+            [generatedEmail, 'guest', fullName, phone]
+          );
+          citizenUserId = created.rows[0].id;
+        }
+      }
+
       const appealData: CreateAppealData = {
         ...req.body,
-        user_id: req.user?.userId || null
+        user_id: citizenUserId
       };
       
       const appeal = await this.appealModel.create(appealData);
@@ -32,6 +58,22 @@ export class AppealController {
         userId: req.user?.userId 
       });
       
+      // Enqueue AI analysis job
+      try {
+        await appealAnalysisQueue.add({
+          appealId: appeal.id,
+          subject: appealData.subject,
+          description: appealData.description
+        });
+        logger.info('Appeal queued for AI analysis', { appealId: appeal.id });
+      } catch (queueError: any) {
+        logger.error('Failed to queue AI analysis', { 
+          appealId: appeal.id, 
+          error: queueError.message 
+        });
+        // Continue anyway - analysis can be run manually if needed
+      }
+      
       res.status(201).json({
         success: true,
         message: 'Appeal created successfully',
@@ -39,7 +81,12 @@ export class AppealController {
           id: appeal.id,
           tracking_number: appeal.tracking_number,
           status: appeal.status,
-          submitted_at: appeal.submitted_at
+          submitted_at: appeal.submitted_at,
+          citizen_user_id: citizenUserId
+        },
+        // Backward compatibility for older frontends expecting appeal.tracking_number
+        appeal: {
+          tracking_number: appeal.tracking_number
         }
       });
     } catch (error) {

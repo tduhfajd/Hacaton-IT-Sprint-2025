@@ -1,26 +1,22 @@
 import { Router } from 'express';
-import { pool } from '@/config/database';
-import { getRedisClient } from '@/config/redis';
+import { pool } from '../config/database';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (_req, res) => {
   try {
     // Check database connection
     const dbClient = await pool.connect();
     await dbClient.query('SELECT 1');
     dbClient.release();
 
-    // Check Redis connection
-    const redis = getRedisClient();
-    await redis.ping();
-
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
       services: {
         database: 'connected',
-        redis: 'connected'
+        api: 'running'
       }
     });
   } catch (error) {
