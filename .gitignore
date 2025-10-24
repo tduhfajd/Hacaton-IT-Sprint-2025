@@ -288,6 +288,18 @@ pids
 # Built Visual Studio Code Extensions
 *.vsix
 
+# Cursor IDE
+.cursor/
+.cursorrules
+
+# AI Tools & Assistants
+.specify/
+.speckit/
+.agent/
+
+# GitHub workflows (внутренние CI/CD)
+.github/
+
 # JetBrains IDEs
 .idea/
 *.swp
