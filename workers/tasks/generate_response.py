@@ -78,8 +78,14 @@ def generate_response(appeal_id: str, subject: str, description: str):
         print(f"⚠️ Низкий confidence (0.3) - оператор увидит что нужна ручная обработка")
         print(f"⚠️ Рекомендуется добавить информацию в базу знаний")
     
-    # 3. Сохранить предложенный ответ
+    # 3. Сохранить сообщение пользователя в чат
+    save_user_message_to_chat(appeal_id, description)
+    
+    # 4. Сохранить предложенный ответ AI
     save_response(appeal_id, suggested_text, confidence, sources)
+    
+    # 5. Отправить AI-ответ в чат как предложение оператору
+    save_system_message_to_chat(appeal_id, suggested_text)
     
     print(f"✅ Response generated for {appeal_id}")
     
@@ -310,6 +316,58 @@ def search_knowledge_base(category: str, text: str) -> list:
                 print(f"  📄 Найдена статья: '{r['title']}' (релевантность: {r.get('relevance_score', 0)})")
             
             return results
+    finally:
+        conn.close()
+
+
+def save_user_message_to_chat(appeal_id: str, message: str):
+    """Сохраняет сообщение пользователя в чат"""
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Получаем user_id из обращения (если есть зарегистрированный пользователь)
+            cur.execute("SELECT user_id, tracking_number FROM appeals WHERE id = %s", (appeal_id,))
+            result = cur.fetchone()
+            
+            if result:
+                # Используем user_id если есть, иначе tracking_number как временный ID
+                sender_id = result['user_id'] if result['user_id'] else result['tracking_number']
+                
+                # Сохраняем сообщение от гражданина
+                cur.execute("""
+                    INSERT INTO chat_messages (appeal_id, sender_id, sender_type, message, created_at)
+                    VALUES (%s, %s, 'citizen', %s, NOW())
+                """, (appeal_id, str(sender_id), message))
+                conn.commit()
+                print(f"   💬 Сохранено сообщение гражданина в чат (sender_id: {sender_id})")
+            else:
+                print(f"   ⚠️ Appeal {appeal_id} не найдено")
+    finally:
+        conn.close()
+
+
+def save_system_message_to_chat(appeal_id: str, message: str):
+    """Сохраняет AI-ответ в чат как системное сообщение"""
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Получаем информацию о обращении для sender_id
+            cur.execute("SELECT tracking_number FROM appeals WHERE id = %s", (appeal_id,))
+            result = cur.fetchone()
+            
+            if result:
+                # Используем специальный system ID
+                sender_id = 'system-ai'
+                
+                # Сохраняем AI-ответ как системное сообщение
+                cur.execute("""
+                    INSERT INTO chat_messages (appeal_id, sender_id, sender_type, message, created_at)
+                    VALUES (%s, (SELECT id FROM users WHERE email = 'system@smartsupport.ru' LIMIT 1), 'system', %s, NOW())
+                """, (appeal_id, message))
+                conn.commit()
+                print(f"   🤖 Сохранен AI-ответ в чат как системное сообщение")
+            else:
+                print(f"   ⚠️ Appeal {appeal_id} не найдено")
     finally:
         conn.close()
 
