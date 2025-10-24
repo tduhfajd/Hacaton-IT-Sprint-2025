@@ -9,26 +9,26 @@ services:
     container_name: smart-support-backend
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=api-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_API}
       - VIRTUAL_PORT=3001
-      - LETSENCRYPT_HOST=api-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_API}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
       - WEBSOCKET=true
-      - NODE_ENV=production
-      - PORT=3001
-      - DATABASE_URL=postgresql://user:StrongPasswordChange2025!@db:5432/smart_assistant
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=smart_assistant
-      - DB_USER=user
-      - DB_PASSWORD=StrongPasswordChange2025!
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=your-very-strong-secret-key-change-in-production-2025
-      - GIGACHAT_CLIENT_ID=4564de21-0d1d-4524-b4e7-cc807691ea32
-      - GIGACHAT_AUTH_KEY=NDU2NGRlMjEtMGQxZC00NTI0LWI0ZTctY2M4MDc2OTFlYTMyOmU4YmVhZGUwLWEzY2MtNDIzMC05N2Q3LWQxOGY4ODcyMmQzMw==
-      - API_URL=https://api-smartsupport.vadimevgrafov.ru
-      - FRONTEND_URL=https://user-smartsupport.vadimevgrafov.ru
-      - CORS_ORIGINS=https://user-smartsupport.vadimevgrafov.ru,https://operator-smartsupport.vadimevgrafov.ru,https://admin-smartsupport.vadimevgrafov.ru
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${PORT}
+      - DATABASE_URL=${DATABASE_URL}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - GIGACHAT_CLIENT_ID=${GIGACHAT_CLIENT_ID}
+      - GIGACHAT_AUTH_KEY=${GIGACHAT_AUTH_KEY}
+      - API_URL=${API_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - CORS_ORIGINS=${CORS_ORIGINS}
     ports:
       - "3001:3001"
     volumes:
@@ -55,10 +55,10 @@ services:
     container_name: smart-support-landing
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_LANDING}
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_LANDING}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
       - nginx-net
     healthcheck:
@@ -76,10 +76,10 @@ services:
     container_name: smart-support-frontend-user
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=user-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_USER}
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=user-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_USER}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
       - nginx-net
     depends_on:
@@ -93,10 +93,10 @@ services:
     container_name: smart-support-frontend-operator
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=operator-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_OPERATOR}
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=operator-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_OPERATOR}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
       - nginx-net
     depends_on:
@@ -110,10 +110,10 @@ services:
     container_name: smart-support-frontend-admin
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=admin-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_ADMIN}
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=admin-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_ADMIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
       - nginx-net
     depends_on:
@@ -125,9 +125,9 @@ services:
     container_name: smart-support-db
     restart: unless-stopped
     environment:
-      - POSTGRES_DB=smart_assistant
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=StrongPasswordChange2025!
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -162,12 +162,12 @@ services:
     container_name: smart-support-rabbitmq
     restart: unless-stopped
     environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=SmartSupport2025!
-      - VIRTUAL_HOST=rabbitmq-smartsupport.vadimevgrafov.ru
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
+      - VIRTUAL_HOST=${VIRTUAL_HOST_RABBITMQ}
       - VIRTUAL_PORT=15672
-      - LETSENCRYPT_HOST=rabbitmq-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_RABBITMQ}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
@@ -187,15 +187,15 @@ services:
     container_name: smart-support-celery-worker
     restart: unless-stopped
     environment:
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=admin
-      - RABBITMQ_PASS=SmartSupport2025!
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=smart_assistant
-      - DB_USER=user
-      - DB_PASSWORD=StrongPasswordChange2025!
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_USER=${RABBITMQ_DEFAULT_USER}
+      - RABBITMQ_PASS=${RABBITMQ_DEFAULT_PASS}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
     networks:
       - backend-net
     depends_on:
@@ -215,10 +215,10 @@ services:
     container_name: smart-support-user-frontend
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=user-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_USER}
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=user-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_USER}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
       - nginx-net
 
@@ -234,10 +234,10 @@ services:
     container_name: smart-support-operator-frontend
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=operator-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_OPERATOR}
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=operator-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_OPERATOR}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
       - nginx-net
 
@@ -253,10 +253,10 @@ services:
     container_name: smart-support-admin-frontend
     restart: unless-stopped
     environment:
-      - VIRTUAL_HOST=admin-smartsupport.vadimevgrafov.ru
+      - VIRTUAL_HOST=${VIRTUAL_HOST_ADMIN}
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=admin-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_HOST=${VIRTUAL_HOST_ADMIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
       - nginx-net
 
@@ -269,7 +269,7 @@ services:
       - VIRTUAL_HOST=docs-smartsupport.vadimevgrafov.ru
       - VIRTUAL_PORT=80
       - LETSENCRYPT_HOST=docs-smartsupport.vadimevgrafov.ru
-      - LETSENCRYPT_EMAIL=admin@vadimevgrafov.ru
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     volumes:
       - ./static:/usr/share/nginx/html:ro
       # Use default nginx config inside image; custom config removed due to context errors
