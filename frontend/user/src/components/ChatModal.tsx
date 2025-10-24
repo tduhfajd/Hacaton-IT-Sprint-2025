@@ -56,7 +56,20 @@ const ChatModal: React.FC<ChatModalProps> = ({ appealId, citizenId, onClose }) =
         message: msg.message || msg.message_text,
         created_at: msg.created_at
       };
-      setMessages(prev => [...prev, normalized]);
+      
+      // Избегаем дублирования - не добавляем свои сообщения повторно
+      setMessages(prev => {
+        // Если это мое сообщение и оно уже есть (оптимистичное), пропускаем
+        if (normalized.sender_id === citizenId && normalized.sender_type === 'citizen') {
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage && 
+              lastMessage.message_text === normalized.message_text && 
+              lastMessage.sender_type === 'citizen') {
+            return prev; // Уже есть
+          }
+        }
+        return [...prev, normalized];
+      });
     });
 
     return () => {
@@ -74,13 +87,29 @@ const ChatModal: React.FC<ChatModalProps> = ({ appealId, citizenId, onClose }) =
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() || !socketRef.current) return;
+    
+    const messageText = text.trim();
+    
+    // Оптимистичное обновление UI - сразу показываем сообщение
+    const optimisticMessage: Message = {
+      appeal_id: appealId,
+      sender_id: citizenId,
+      sender_type: 'citizen',
+      message_text: messageText,
+      message: messageText,
+      created_at: new Date().toISOString()
+    };
+    
+    setMessages(prev => [...prev, optimisticMessage]);
+    setText('');
+    
+    // Отправляем на сервер
     socketRef.current.emit('send_message', {
       appealId,
       senderId: citizenId,
       senderType: 'citizen',
-      message: text.trim()
+      message: messageText
     });
-    setText('');
   };
 
   return (
