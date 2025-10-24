@@ -96,16 +96,22 @@ def generate_human_like_response(question: str, category: str, knowledge_base_ar
         # Есть конкретная информация по вопросу
         answer_parts = []
         answer_parts.append("Здравствуйте!")
-        answer_parts.append("")
-        answer_parts.append(f"Отвечаю на ваш вопрос по теме \"{category}\":")
-        answer_parts.append("")
+        answer_parts.append("")  # Одна пустая строка после приветствия
         
-        # Добавляем релевантные части
-        for section in relevant_sections[:3]:  # Максимум 3 секции
-            answer_parts.append(section)
-            answer_parts.append("")
+        # Добавляем релевантные части БЕЗ лишних пробелов
+        for i, section in enumerate(relevant_sections[:3]):  # Максимум 3 секции
+            # Убираем bullet points и лишние переносы
+            clean_section = re.sub(r'^\s*[-•*]\s*', '', section, flags=re.MULTILINE)
+            clean_section = re.sub(r'\n+', ' ', clean_section).strip()
+            
+            # Разбиваем длинные секции на предложения для читаемости
+            sentences = re.split(r'(?<=[.!?])\s+', clean_section)
+            formatted_section = ' '.join(sentences)
+            
+            answer_parts.append(f"• {formatted_section}")
         
-        answer_parts.append("Если у вас есть дополнительные вопросы или требуется уточнение, пожалуйста, напишите.")
+        answer_parts.append("")  # Одна пустая строка перед подписью
+        answer_parts.append("Если требуется более детальная информация, уточните.")
         answer_parts.append("")
         answer_parts.append("С уважением,")
         answer_parts.append("Служба поддержки")
