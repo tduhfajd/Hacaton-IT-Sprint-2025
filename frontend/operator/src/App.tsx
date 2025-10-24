@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import ChatWindow from './components/ChatWindow';
+import LoginForm from './components/LoginForm';
 import config from './config';
 
 interface Appeal {
@@ -25,6 +26,10 @@ interface Appeal {
 type StatusTab = 'new' | 'in_progress' | 'resolved' | 'all';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  
   const [appeals, setAppeals] = useState<Appeal[]>([]);
   const [loading, setLoading] = useState(true);
   // removed unused selectedAppeal state
@@ -34,6 +39,53 @@ function App() {
   const [activeTab, setActiveTab] = useState<StatusTab>('new');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Проверка авторизации при загрузке
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    const savedUser = localStorage.getItem('user');
+    
+    if (token && savedUser) {
+      // Проверяем валидность токена
+      fetch(`${config.apiUrl}/api/auth/verify`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setUser(JSON.parse(savedUser));
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+        }
+        setAuthLoading(false);
+      })
+      .catch(() => {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        setAuthLoading(false);
+      });
+    } else {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const handleLoginSuccess = (token: string, userData: any) => {
+    setUser(userData);
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+    setUser(null);
+    setIsAuthenticated(false);
+  };
 
   useEffect(() => {
     // Загружаем реальные обращения из API
@@ -120,6 +172,19 @@ function App() {
     setChatAppealId(appealId);
   };
 
+  // Показываем форму входа, если не авторизован
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
+        <div className="text-white text-xl">Загрузка...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginForm onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Toaster position="top-right" />
@@ -134,12 +199,18 @@ function App() {
             </div>
             <div className="flex items-center space-x-4">
               <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">Иванова М.П.</p>
-                <p className="text-xs text-gray-500">Оператор</p>
+                <p className="text-sm font-medium text-gray-900">{user?.name || 'Оператор'}</p>
+                <p className="text-xs text-gray-500">{user?.role === 'operator' ? 'Оператор' : 'Администратор'}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
-                ИМ
+                {user?.name?.split(' ')[0]?.substring(0, 2).toUpperCase() || 'ОП'}
               </div>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                Выход
+              </button>
             </div>
           </div>
         </div>

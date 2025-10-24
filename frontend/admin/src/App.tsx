@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
+import LoginForm from './components/LoginForm';
 import config from './config';
 
 interface KnowledgeBaseArticle {
@@ -21,6 +22,10 @@ interface Category {
 }
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  
   const [articles, setArticles] = useState<KnowledgeBaseArticle[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +41,52 @@ function App() {
     tags: [] as string[],
     is_active: true
   });
+
+  // Проверка авторизации при загрузке
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    const savedUser = localStorage.getItem('user');
+    
+    if (token && savedUser) {
+      fetch(`${config.apiUrl}/api/auth/verify`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data.user.role === 'admin') {
+          setUser(JSON.parse(savedUser));
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+        }
+        setAuthLoading(false);
+      })
+      .catch(() => {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        setAuthLoading(false);
+      });
+    } else {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const handleLoginSuccess = (token: string, userData: any) => {
+    setUser(userData);
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+    setUser(null);
+    setIsAuthenticated(false);
+  };
 
   // Load articles
   useEffect(() => {
@@ -186,6 +237,19 @@ function App() {
     inactive: articles.filter(a => !a.is_active).length
   };
 
+  // Показываем форму входа, если не авторизован
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-500 to-indigo-600">
+        <div className="text-white text-xl">Загрузка...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginForm onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Toaster position="top-right" />
@@ -194,16 +258,30 @@ function App() {
       <header className="bg-gradient-to-r from-purple-600 to-indigo-600 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-white">База знаний</h1>
-              <p className="text-purple-100 mt-1">Управление статьями и категориями</p>
+            <div className="flex items-center space-x-6">
+              <div>
+                <h1 className="text-3xl font-bold text-white">База знаний</h1>
+                <p className="text-purple-100 mt-1">Управление статьями и категориями</p>
+              </div>
+              <div className="text-purple-100 text-sm">
+                <p className="font-medium">{user?.name}</p>
+                <p className="text-xs opacity-90">Администратор</p>
+              </div>
             </div>
-            <button
-              onClick={() => { setIsEditing(true); resetForm(); }}
-              className="bg-white text-purple-600 px-6 py-2 rounded-lg font-semibold hover:bg-purple-50 transition"
-            >
-              ➕ Создать статью
-            </button>
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => { setIsEditing(true); resetForm(); }}
+                className="bg-white text-purple-600 px-6 py-2 rounded-lg font-semibold hover:bg-purple-50 transition"
+              >
+                ➕ Создать статью
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 text-sm text-white hover:bg-purple-700 rounded-lg transition-colors border border-purple-400"
+              >
+                Выход
+              </button>
+            </div>
           </div>
         </div>
       </header>
