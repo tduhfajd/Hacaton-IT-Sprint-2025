@@ -75,7 +75,7 @@ export class ChatService {
               appeal_id: appealId,
               sender_id: 'system',
               sender_type: 'system',
-              message_text: 'Минуту, ожидайте ответ. Мы анализируем ваше обращение…',
+              message_text: 'Здравствуйте! Мы анализируем ваше обращение, ожидайте ответ…',
               created_at: new Date().toISOString() as any
             } as any;
             this.io.to(`appeal_${appealId}`).emit('new_message', systemMessage);
