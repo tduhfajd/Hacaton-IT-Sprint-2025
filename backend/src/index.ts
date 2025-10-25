@@ -10,6 +10,7 @@ import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
 import { ChatService } from './services/ChatService';
 import { rabbitMQService } from './services/RabbitMQService';
+import telegramBotService from './services/TelegramBotService';
 
 // Load environment variables
 dotenv.config();
@@ -328,6 +329,20 @@ httpServer.listen(PORT, async () => {
   } catch (error: any) {
     console.error('❌ RabbitMQ connection failed:', error.message);
     console.error('   AI processing will not work until RabbitMQ is available');
+  }
+
+  // Initialize Telegram Bot
+  const telegramToken = process.env['TELEGRAM_BOT_TOKEN'];
+  if (telegramToken) {
+    try {
+      await telegramBotService.initialize(telegramToken);
+      console.log('✅ Telegram Bot initialized and ready');
+    } catch (error: any) {
+      console.error('❌ Telegram Bot initialization failed:', error.message);
+      console.error('   Telegram integration will not be available');
+    }
+  } else {
+    console.log('⚠️  TELEGRAM_BOT_TOKEN not set, Telegram Bot disabled');
   }
 });
 

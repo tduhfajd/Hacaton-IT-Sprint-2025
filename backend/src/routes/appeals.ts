@@ -22,6 +22,7 @@ import {
   searchQueryValidators
 } from '../validators/trackingValidators';
 import { db, pool } from '../config/database';
+import telegramBotService from '../services/TelegramBotService';
 
 // Initialize services
 const userModel = new UserModel(db);
@@ -73,10 +74,8 @@ router.get('/:id/ai-response', appealIdValidator, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT ar.suggested_text, ar.confidence, ar.sources, ar.created_at,
-              aa.category_suggestion, aa.priority_suggestion
+      `SELECT ar.suggested_text, ar.confidence, ar.sources, ar.created_at
        FROM ai_responses ar
-       LEFT JOIN appeal_analysis aa ON ar.appeal_id = aa.appeal_id
        WHERE ar.appeal_id = $1
        ORDER BY ar.created_at DESC
        LIMIT 1`,
@@ -99,6 +98,78 @@ router.get('/:id/ai-response', appealIdValidator, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get AI response',
+      error: error.message
+    });
+  }
+});
+
+// Operator response endpoint (with Telegram integration)
+router.post('/:id/operator-respond', appealIdValidator, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message, operator_name } = req.body;
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message is required'
+      });
+    }
+
+    // Get appeal info
+    const appealResult = await pool.query(
+      `SELECT source, telegram_chat_id, user_name FROM appeals WHERE id = $1`,
+      [id]
+    );
+
+    if (appealResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appeal not found'
+      });
+    }
+
+    const appeal = appealResult.rows[0];
+
+    // Save message to chat_messages
+    const operatorName = operator_name || 'Оператор';
+    const responseMessage = `${operatorName}: ${message}`;
+
+    await pool.query(
+      `INSERT INTO chat_messages (appeal_id, sender_id, sender_type, message, created_at)
+       VALUES ($1, (SELECT id FROM users WHERE role = 'operator' LIMIT 1), 'operator', $2, NOW())`,
+      [id, responseMessage]
+    );
+
+    // If source is telegram, send to Telegram
+    if (appeal.source === 'telegram' && appeal.telegram_chat_id) {
+      try {
+        await telegramBotService.sendMessage(appeal.telegram_chat_id, message);
+        console.log(`✅ Message sent to Telegram for appeal ${id}`);
+      } catch (telegramError: any) {
+        console.error('❌ Failed to send to Telegram:', telegramError.message);
+        // Continue anyway - message is saved in DB
+      }
+    }
+
+    // Update appeal status to 'in_progress' if it's 'new'
+    await pool.query(
+      `UPDATE appeals SET status = 'in_progress', updated_at = NOW() WHERE id = $1 AND status = 'new'`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Response sent successfully',
+      data: {
+        sent_to_telegram: appeal.source === 'telegram' && !!appeal.telegram_chat_id
+      }
+    });
+  } catch (error: any) {
+    console.error('Operator Response Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send response',
       error: error.message
     });
   }

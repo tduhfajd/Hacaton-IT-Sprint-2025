@@ -10,12 +10,16 @@ export class RabbitMQService {
   private rabbitMQUrl: string;
 
   constructor() {
-    const host = process.env['RABBITMQ_HOST'] || 'rabbitmq';
-    const port = process.env['RABBITMQ_PORT'] || '5672';
-    const user = process.env['RABBITMQ_USER'] || 'admin';
-    const pass = process.env['RABBITMQ_PASS'] || 'SmartSupport2025!';
-
-    this.rabbitMQUrl = `amqp://${user}:${pass}@${host}:${port}`;
+    // Используем RABBITMQ_URL напрямую, если задан, иначе собираем из компонентов
+    if (process.env['RABBITMQ_URL']) {
+      this.rabbitMQUrl = process.env['RABBITMQ_URL'];
+    } else {
+      const host = process.env['RABBITMQ_HOST'] || 'smart-support-rabbitmq';
+      const port = process.env['RABBITMQ_PORT'] || '5672';
+      const user = process.env['RABBITMQ_USER'] || 'guest';
+      const pass = process.env['RABBITMQ_PASS'] || 'guest';
+      this.rabbitMQUrl = `amqp://${user}:${pass}@${host}:${port}`;
+    }
   }
 
   async connect(): Promise<void> {

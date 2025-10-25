@@ -102,15 +102,23 @@ function App() {
             <div className="bg-blue-50 rounded-lg p-4 mb-6">
               <p className="text-2xl font-mono font-bold text-blue-600">{trackingNumber}</p>
             </div>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-green-800">
+                💬 Вы можете продолжить общение с оператором в чате
+              </p>
+            </div>
             <p className="text-sm text-gray-500 mb-6">
-              Сохраните этот номер для проверки статуса вашего обращения
+              Сохраните номер для проверки статуса вашего обращения
             </p>
             <div className="space-y-3">
               <button
                 onClick={() => setChatOpen(true)}
-                className="w-full bg-green-600 text-white rounded-lg px-6 py-3 font-semibold hover:bg-green-700 transition-colors"
+                className="w-full bg-green-600 text-white rounded-lg px-6 py-3 font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
               >
-                Открыть чат с оператором
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                {chatOpen ? 'Чат открыт' : 'Открыть чат с оператором'}
               </button>
               <button
                 onClick={() => {

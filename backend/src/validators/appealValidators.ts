@@ -2,14 +2,15 @@ import { body, param, query } from 'express-validator';
 
 export const createAppealValidators = [
   body('subject')
+    .optional() // Subject is optional - can be category name or empty
     .trim()
-    .isLength({ min: 5, max: 500 })
-    .withMessage('Subject must be between 5 and 500 characters'),
+    .isLength({ min: 0, max: 500 })
+    .withMessage('Subject must not exceed 500 characters'),
   
   body('description')
     .trim()
-    .isLength({ min: 20, max: 5000 })
-    .withMessage('Description must be between 20 and 5000 characters'),
+    .isLength({ min: 10, max: 5000 }) // Reduced min from 20 to 10
+    .withMessage('Description must be between 10 and 5000 characters'),
   
   body('category_id')
     .optional()

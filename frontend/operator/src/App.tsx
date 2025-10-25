@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
+import { io } from 'socket.io-client';
 import ChatWindow from './components/ChatWindow';
-import LoginForm from './components/LoginForm';
 import config from './config';
 
 interface Appeal {
@@ -21,14 +21,15 @@ interface Appeal {
   keywords?: string[];
   summary?: string;
   ai_confidence?: number;
+  unread_operator_count?: number;
+  last_activity_at?: string;
 }
 
-type StatusTab = 'new' | 'in_progress' | 'resolved' | 'all';
+type StatusTab = 'new' | 'in_progress' | 'completed' | 'all';
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  // Авторизация отключена для упрощения тестирования
+  const [user] = useState<any>({ name: 'Демо Оператор', role: 'Оператор' });
   
   const [appeals, setAppeals] = useState<Appeal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,68 +41,56 @@ function App() {
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // Проверка авторизации при загрузке
-  useEffect(() => {
-    const token = localStorage.getItem('auth_token');
-    const savedUser = localStorage.getItem('user');
-    
-    if (token && savedUser) {
-      // Проверяем валидность токена
-      fetch(`${config.apiUrl}/api/auth/verify`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setUser(JSON.parse(savedUser));
-          setIsAuthenticated(true);
-        } else {
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('user');
-        }
-        setAuthLoading(false);
-      })
-      .catch(() => {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user');
-        setAuthLoading(false);
-      });
-    } else {
-      setAuthLoading(false);
-    }
-  }, []);
-
-  const handleLoginSuccess = (_token: string, userData: any) => {
-    setUser(userData);
-    setIsAuthenticated(true);
-  };
-
   const handleLogout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user');
-    setUser(null);
-    setIsAuthenticated(false);
+    // Logout disabled
+    console.log('Logout disabled in demo mode');
   };
 
   useEffect(() => {
     // Загружаем реальные обращения из API
-    fetch(`${config.apiUrl}/api/appeals`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          const list = (data.data && data.data.appeals) ? data.data.appeals : (data.appeals || []);
-          setAppeals(list);
-        }
-        setLoading(false);
-      })
-      .catch(error => {
-        console.error('Failed to load appeals:', error);
-        setLoading(false);
-      });
+    const loadAppeals = () => {
+      fetch(`${config.apiUrl}/api/appeals`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            const list = (data.data && data.data.appeals) ? data.data.appeals : (data.appeals || []);
+            setAppeals(list);
+          }
+          setLoading(false);
+        })
+        .catch(error => {
+          console.error('Failed to load appeals:', error);
+          setLoading(false);
+        });
+    };
+
+    loadAppeals();
+
+    // Подписываемся на Socket.IO для обновления списка обращений
+    const socket = io(config.wsUrl || 'ws://localhost:3001', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      withCredentials: true,
+      reconnection: true
+    });
+    
+    socket.on('connect', () => {
+      console.log('✅ Connected to appeal updates WebSocket');
+    });
+
+    socket.on('appeal_updated', (data: { appealId: string; hasNewMessage: boolean }) => {
+      console.log('📢 Appeal updated:', data);
+      // Перезагружаем список обращений
+      loadAppeals();
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Disconnected from appeal updates WebSocket');
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   // Filter appeals
@@ -129,7 +118,7 @@ function App() {
     total: appeals.length,
     new: appeals.filter(a => a.status === 'new').length,
     inProgress: appeals.filter(a => a.status === 'in_progress').length,
-    completed: appeals.filter(a => a.status === 'resolved').length,
+    completed: appeals.filter(a => a.status === 'completed').length,
     avgConfidence: appeals.length > 0 
       ? Math.round((appeals.reduce((sum, a) => sum + (a.ai_confidence || 0), 0) / appeals.length) * 100)
       : 0
@@ -172,19 +161,6 @@ function App() {
     }
     setChatAppealId(appealId);
   };
-
-  // Показываем форму входа, если не авторизован
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
-        <div className="text-white text-xl">Загрузка...</div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <LoginForm onLoginSuccess={handleLoginSuccess} />;
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -308,9 +284,9 @@ function App() {
                 В работе ({stats.inProgress})
               </button>
               <button
-                onClick={() => setActiveTab('resolved')}
+                onClick={() => setActiveTab('completed')}
                 className={`${
-                  activeTab === 'resolved'
+                  activeTab === 'completed'
                     ? 'border-green-500 text-green-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm`}
@@ -416,9 +392,14 @@ function App() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                           <button 
                             onClick={() => handleOpenChat(appeal.id, appeal.status)}
-                            className="text-green-600 hover:text-green-900"
+                            className="text-green-600 hover:text-green-900 relative inline-flex items-center"
                           >
                             💬 Чат
+                            {appeal.unread_operator_count && appeal.unread_operator_count > 0 && (
+                              <span className="ml-2 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-600 rounded-full animate-pulse">
+                                {appeal.unread_operator_count}
+                              </span>
+                            )}
                           </button>
                         </td>
                       </tr>

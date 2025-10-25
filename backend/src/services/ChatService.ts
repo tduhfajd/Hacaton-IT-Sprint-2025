@@ -64,6 +64,27 @@ export class ChatService {
           
           logger.info('ChatService: User joined appeal', { appealId, userId, userType });
           
+          // If operator joins, automatically set appeal status to 'in_progress' and reset unread count
+          if (userType === 'operator') {
+            try {
+              await pool.query(
+                `UPDATE appeals 
+                 SET status = 'in_progress', 
+                     unread_operator_count = 0,
+                     updated_at = NOW() 
+                 WHERE id = $1 AND status IN ('new', 'in_progress')`,
+                [appealId]
+              );
+              
+              // Broadcast appeal_updated event to refresh operator panel
+              this.io.emit('appeal_updated', { appealId, hasNewMessage: false });
+              
+              logger.info('ChatService: Appeal status updated to in_progress, unread count reset', { appealId });
+            } catch (statusError: any) {
+              logger.warn('ChatService: Failed to update appeal status', { appealId, error: statusError.message });
+            }
+          }
+          
           // Send chat history
           const messages = await this.getChatHistory(appealId);
           socket.emit('chat_history', messages);
@@ -99,19 +120,94 @@ export class ChatService {
         logger.info('ChatService: Received send_message event', { data, socketId: socket.id });
         const { appealId, senderId, senderType, message } = data;
         try {
+          console.log(`💾 Attempting to save message: appealId=${appealId}, senderId=${senderId}, senderType=${senderType}`);
           // Try to save message to database
           const savedMessage = await this.saveMessage(appealId, senderId, senderType, message);
+          console.log(`✅ Message saved successfully:`, savedMessage);
           // Broadcast to all users in the appeal room
           this.io.to(`appeal_${appealId}`).emit('new_message', savedMessage);
           logger.info('ChatService: Message sent', { appealId, senderId, senderType });
           
+          // If operator sent a message, check if we need to send to Telegram
+          // ALSO: emit close_chat event to auto-close chat window
+          if (senderType === 'operator') {
+            try {
+              const appealResult = await pool.query(
+                'SELECT source, telegram_chat_id FROM appeals WHERE id = $1',
+                [appealId]
+              );
+              
+              if (appealResult.rows.length > 0) {
+                const appeal = appealResult.rows[0];
+                if (appeal.source === 'telegram' && appeal.telegram_chat_id) {
+                  const telegramBotService = require('./TelegramBotService').default;
+                  await telegramBotService.sendMessage(appeal.telegram_chat_id, message);
+                  logger.info('ChatService: Message sent to Telegram', { appealId, chatId: appeal.telegram_chat_id });
+                }
+              }
+            } catch (telegramError: any) {
+              logger.warn('ChatService: Failed to send to Telegram', { appealId, error: telegramError.message });
+            }
+            
+            // Auto-close chat window for operator after sending message
+            console.log(`🔒 ChatService: Emitting close_chat event for appealId=${appealId}, socket=${socket.id}`);
+            
+            // Отправляем событие НАПРЯМУЮ на socket оператора, который отправил сообщение
+            socket.emit('close_chat', { appealId });
+            logger.info('ChatService: Sent close_chat event to operator socket', { appealId, socketId: socket.id });
+            console.log(`✅ ChatService: close_chat event emitted to socket ${socket.id}`);
+          }
+          
           // If citizen sent a message, generate contextual AI response
+          // AND increment unread_operator_count + update last_activity_at
           if (senderType === 'citizen') {
             try {
               await rabbitMQService.enqueueContextualResponse(appealId);
               logger.info('ChatService: Enqueued contextual AI response', { appealId });
             } catch (aiError: any) {
               logger.warn('ChatService: Failed to enqueue contextual AI', { appealId, error: aiError.message });
+            }
+            
+            // Update unread count, activity timestamp, AND status back to 'new' (only if currently in_progress)
+            try {
+              await pool.query(
+                `UPDATE appeals 
+                 SET unread_operator_count = unread_operator_count + 1,
+                     last_activity_at = NOW(),
+                     status = CASE 
+                       WHEN status = 'in_progress' THEN 'new'
+                       ELSE status
+                     END,
+                     updated_at = NOW()
+                 WHERE id = $1 AND status IN ('in_progress', 'new')`,
+                [appealId]
+              );
+              
+              // Broadcast appeal_updated event to all connected operators
+              this.io.emit('appeal_updated', { appealId, hasNewMessage: true });
+              logger.info('ChatService: Incremented unread count, updated activity, and set status to new if was in_progress', { appealId });
+            } catch (updateError: any) {
+              logger.warn('ChatService: Failed to update unread count', { appealId, error: updateError.message });
+            }
+          }
+          
+          // If operator sent a message, reset unread count AND set status to 'in_progress'
+          if (senderType === 'operator') {
+            console.log(`📊 ChatService: Updating appeal status for operator message, appealId=${appealId}`);
+            try {
+              await pool.query(
+                `UPDATE appeals 
+                 SET unread_operator_count = 0,
+                     status = 'in_progress',
+                     updated_at = NOW()
+                 WHERE id = $1 AND status IN ('new', 'in_progress')`,
+                [appealId]
+              );
+              console.log(`✅ ChatService: Appeal status updated to in_progress, unread count reset`);
+              logger.info('ChatService: Reset unread count and set status to in_progress', { appealId });
+            } catch (updateError: any) {
+              console.log(`❌ ChatService: Failed to update appeal status:`, updateError);
+              logger.warn('ChatService: Failed to reset unread count', { appealId, error: updateError.message });
             }
           }
         } catch (error: any) {
@@ -126,6 +222,12 @@ export class ChatService {
           };
           this.io.to(`appeal_${appealId}`).emit('new_message', ephemeral);
           logger.warn('ChatService: DB save failed, sent ephemeral message', { appealId, error: error?.message });
+          
+          // ВАЖНО: Отправить close_chat даже если сохранение не удалось (для оператора)
+          if (senderType === 'operator') {
+            socket.emit('close_chat', { appealId });
+            logger.info('ChatService: Sent close_chat event to operator socket (ephemeral)', { appealId, socketId: socket.id });
+          }
         }
       });
 
@@ -200,8 +302,14 @@ export class ChatService {
     messageText: string
   ): Promise<ChatMessage> {
     try {
+      console.log(`🔍 saveMessage check: senderId=${senderId}, isValidUuid=${this.isValidUuid(senderId)}`);
+      
       // If senderId is not a valid UUID or not found in users table, skip persistence
-      if (!this.isValidUuid(senderId) || !(await this.userExists(senderId))) {
+      const userCheck = await this.userExists(senderId);
+      console.log(`🔍 User exists check: ${userCheck}`);
+      
+      if (!this.isValidUuid(senderId) || !userCheck) {
+        console.warn(`⚠️ Skipping persistence: invalid UUID or user not found`);
         const fallback: ChatMessage = {
           id: 'ephemeral',
           appeal_id: appealId,
@@ -212,6 +320,8 @@ export class ChatService {
         } as any;
         return fallback;
       }
+      
+      console.log(`✅ Validation passed, saving to DB...`);
 
       const query = `
         INSERT INTO chat_messages (
@@ -243,7 +353,8 @@ export class ChatService {
   }
 
   private isValidUuid(value: string): boolean {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    // Упрощенная проверка UUID (включая nil UUID 00000000-0000-0000-0000-000000000000)
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   }
 
   private async userExists(userId: string): Promise<boolean> {

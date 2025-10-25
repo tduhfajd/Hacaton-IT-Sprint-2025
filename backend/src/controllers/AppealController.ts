@@ -283,6 +283,17 @@ export class AppealController {
         });
         return;
       }
+
+      // Если обращение завершено и это Telegram - отправляем уведомление
+      if (updateData.status === 'completed' && existingAppeal.source === 'telegram' && existingAppeal.telegram_chat_id) {
+        try {
+          const telegramBotService = require('../services/TelegramBotService').default;
+          await telegramBotService.notifyAppealCompleted(existingAppeal.telegram_chat_id, 'оператором');
+          logger.info('Telegram completion notification sent', { appealId: id });
+        } catch (telegramError: any) {
+          logger.warn('Failed to send Telegram notification', { appealId: id, error: telegramError.message });
+        }
+      }
       
       logger.info(`Appeal updated`, { 
         appealId: id, 
@@ -295,9 +306,10 @@ export class AppealController {
         message: 'Appeal updated successfully',
         data: { appeal: updatedAppeal }
       });
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Update appeal controller error', { 
-        error: error.message,
+        error: error?.message || String(error),
+        stack: error?.stack,
         appealId: req.params.id,
         body: req.body,
         userId: req.user?.userId 
@@ -305,7 +317,8 @@ export class AppealController {
       
       res.status(500).json({
         success: false,
-        message: 'Failed to update appeal'
+        message: 'Failed to update appeal',
+        error: error?.message || String(error)
       });
     }
   };

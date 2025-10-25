@@ -9,13 +9,21 @@ export interface Appeal {
   description: string;
   category_id: string | null;
   priority: 'low' | 'medium' | 'high' | 'critical';
-  status: 'new' | 'processing' | 'completed' | 'rejected' | 'in_progress' | 'resolved';
+  status: 'new' | 'processing' | 'completed' | 'rejected' | 'in_progress' | 'resolved' | 'closed';
   address?: string;
   submitted_at: Date;
   processed_at?: Date;
   completed_at?: Date;
   created_at: Date;
   updated_at: Date;
+  source?: 'web' | 'telegram' | 'email' | 'phone' | 'other';
+  telegram_chat_id?: string;
+  telegram_username?: string;
+  user_name?: string;
+  user_last_name?: string;
+  user_email?: string;
+  unread_operator_count?: number;
+  last_activity_at?: Date;
 }
 
 export interface CreateAppealData {

@@ -43,34 +43,42 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
   const [aiLoading, setAiLoading] = useState(true);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [aiExpanded, setAiExpanded] = useState(true);
   
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Загрузка AI ответа
-  useEffect(() => {
-    const fetchAIResponse = async () => {
-      try {
-        setAiLoading(true);
-        const response = await fetch(`${API_URL}/api/appeals/${appealId}/ai-response`);
-        const data = await response.json();
-        
-        if (data.success && data.data) {
-          setAiResponse({
-            suggested_text: data.data.suggested_text,
-            confidence: data.data.confidence,
-            category_suggestion: data.data.category_suggestion,
-            priority_suggestion: data.data.priority_suggestion
-          });
+  // Функция для загрузки AI ответа
+  const fetchAIResponse = async () => {
+    try {
+      setAiLoading(true);
+      // Добавляем timestamp и заголовки чтобы обойти кеш браузера
+      const response = await fetch(`${API_URL}/api/appeals/${appealId}/ai-response?t=${Date.now()}`, {
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
         }
-      } catch (error) {
-        console.error('Failed to load AI response:', error);
-      } finally {
-        setAiLoading(false);
+      });
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setAiResponse({
+          suggested_text: data.data.suggested_text,
+          confidence: data.data.confidence,
+          category_suggestion: data.data.category_suggestion,
+          priority_suggestion: data.data.priority_suggestion
+        });
       }
-    };
+    } catch (error) {
+      console.error('Failed to load AI response:', error);
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
+  // Загрузка AI ответа при монтировании
+  useEffect(() => {
     fetchAIResponse();
   }, [appealId]);
 
@@ -89,7 +97,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
 
     // События подключения
     socket.on('connect', () => {
-      console.log('✅ Connected to chat server');
+      console.log('✅ Connected to chat server, socket ID:', socket.id);
+      console.log('✅ Joining appeal room:', appealId);
       setConnected(true);
       
       // Присоединяемся к комнате обращения
@@ -115,6 +124,19 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
     socket.on('new_message', (message: Message) => {
       console.log('💬 New message:', message);
       setMessages(prev => [...prev, message]);
+      
+      // Если пришло новое сообщение от гражданина, перезагружаем AI рекомендацию
+      // Используем несколько попыток с интервалом, т.к. AI генерирует ответ не мгновенно
+      if (message.sender_type === 'citizen') {
+        console.log('⏳ Starting AI response polling...');
+        // Делаем 3 попытки: через 3, 6 и 9 секунд
+        [3000, 6000, 9000].forEach((delay, index) => {
+          setTimeout(() => {
+            console.log(`🔄 Fetching AI recommendation (attempt ${index + 1}/3)`);
+            fetchAIResponse();
+          }, delay);
+        });
+      }
     });
 
     // Индикатор печати
@@ -140,11 +162,42 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
       alert('Ошибка чата: ' + error.message);
     });
 
+    // Автозакрытие чата после отправки сообщения оператором
+    socket.on('close_chat', (data: { appealId: string }) => {
+      console.log('🔒🔒🔒 RECEIVED close_chat event!', data);
+      console.log('🔒 Current appealId:', appealId);
+      console.log('🔒 Event appealId:', data.appealId);
+      console.log('🔒 Closing chat in 1 second...');
+      // Задержка 1 секунда, чтобы пользователь видел что сообщение отправлено
+      setTimeout(() => {
+        console.log('🔒 Calling onClose()...');
+        onClose();
+      }, 1000);
+    });
+
+    // Логируем ВСЕ события для отладки
+    socket.onAny((eventName, ...args) => {
+      console.log(`🔔 WebSocket event: ${eventName}`, args);
+    });
+
     // Очистка при размонтировании
     return () => {
       if (socket) {
         socket.emit('leave_appeal', { appealId, userId: operatorId });
-        socket.disconnect();
+        // НЕ отключаем socket, чтобы он мог переиспользоваться при повторном открытии
+        // socket.disconnect();
+        
+        // Но удаляем все обработчики, чтобы избежать утечек памяти
+        socket.off('connect');
+        socket.off('disconnect');
+        socket.off('chat_history');
+        socket.off('new_message');
+        socket.off('typing');
+        socket.off('user_joined');
+        socket.off('user_left');
+        socket.off('error');
+        socket.off('close_chat');
+        socket.offAny();
       }
     };
   }, [appealId, operatorId]);
@@ -240,7 +293,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
       const response = await fetch(`${API_URL}/api/appeals/${appealId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'resolved' })
+        body: JSON.stringify({ status: 'completed' })
       });
 
       if (response.ok) {
@@ -344,49 +397,61 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* AI Suggested Response */}
+        {/* AI Suggested Response - Компактная версия */}
         {aiResponse && (
-          <div className={`p-4 border-t ${
+          <div className={`border-t ${
             aiResponse.confidence < 0.5 
               ? 'bg-gradient-to-r from-orange-50 to-yellow-50 border-orange-200' 
               : 'bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200'
           }`}>
-            <div className="flex items-start justify-between mb-2">
+            <div className="px-4 py-2 flex items-center justify-between cursor-pointer" onClick={() => setAiExpanded(!aiExpanded)}>
               <div className="flex items-center gap-2">
+                <button className="text-gray-600 hover:text-gray-800">
+                  {aiExpanded ? '▼' : '▶'}
+                </button>
                 <span className={`font-semibold text-sm ${
                   aiResponse.confidence < 0.5 ? 'text-orange-600' : 'text-purple-600'
                 }`}>
-                  {aiResponse.confidence < 0.5 ? '⚠️ AI (требуется уточнение):' : '🤖 AI предлагает:'}
+                  {aiResponse.confidence < 0.5 ? '⚠️ AI рекомендация' : '🤖 AI рекомендация'}
                 </span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${
                   aiResponse.confidence < 0.5 
                     ? 'bg-orange-200 text-orange-800' 
                     : 'bg-purple-200 text-purple-800'
                 }`}>
-                  Уверенность: {Math.round(aiResponse.confidence * 100)}%
+                  {Math.round(aiResponse.confidence * 100)}%
                 </span>
               </div>
-              <button
-                onClick={handleUseAIResponse}
-                className={`text-xs text-white px-3 py-1 rounded transition ${
-                  aiResponse.confidence < 0.5
-                    ? 'bg-orange-500 hover:bg-orange-600'
-                    : 'bg-purple-600 hover:bg-purple-700'
-                }`}
-              >
-                Использовать ответ
-              </button>
+              {aiExpanded && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleUseAIResponse();
+                  }}
+                  className={`text-xs text-white px-3 py-1 rounded transition ${
+                    aiResponse.confidence < 0.5
+                      ? 'bg-orange-500 hover:bg-orange-600'
+                      : 'bg-purple-600 hover:bg-purple-700'
+                  }`}
+                >
+                  Использовать
+                </button>
+              )}
             </div>
-            {aiResponse.confidence < 0.5 && (
-              <div className="mb-2 p-2 bg-orange-100 border border-orange-300 rounded text-xs text-orange-800">
-                <strong>⚠️ ВНИМАНИЕ:</strong> В базе знаний нет информации по этой теме. Рекомендуется уточнить информацию вручную или добавить статью в базу знаний.
+            {aiExpanded && (
+              <div className="px-4 pb-3">
+                {aiResponse.confidence < 0.5 && (
+                  <div className="mb-2 p-2 bg-orange-100 border border-orange-300 rounded text-xs text-orange-800">
+                    <strong>⚠️</strong> Низкая уверенность - проверьте ответ
+                  </div>
+                )}
+                <div className={`text-sm text-gray-700 bg-white p-3 rounded whitespace-pre-wrap max-h-40 overflow-y-auto ${
+                  aiResponse.confidence < 0.5 ? 'border border-orange-200' : 'border border-purple-200'
+                }`}>
+                  {aiResponse.suggested_text}
+                </div>
               </div>
             )}
-            <p className={`text-sm text-gray-700 bg-white p-3 rounded whitespace-pre-wrap ${
-              aiResponse.confidence < 0.5 ? 'border border-orange-200' : 'border border-purple-200'
-            }`}>
-              {aiResponse.suggested_text}
-            </p>
           </div>
         )}
 

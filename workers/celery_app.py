@@ -7,8 +7,8 @@ from celery import Celery
 # RabbitMQ connection
 RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'rabbitmq')
 RABBITMQ_PORT = os.getenv('RABBITMQ_PORT', '5672')
-RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
-RABBITMQ_PASS = os.getenv('RABBITMQ_PASS', 'guest')
+RABBITMQ_USER = os.getenv('RABBITMQ_DEFAULT_USER', os.getenv('RABBITMQ_USER', 'guest'))
+RABBITMQ_PASS = os.getenv('RABBITMQ_DEFAULT_PASS', os.getenv('RABBITMQ_PASS', 'guest'))
 
 BROKER_URL = f'amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}:{RABBITMQ_PORT}//'
 
@@ -24,7 +24,12 @@ app = Celery(
     'smart_assistant_workers',
     broker=BROKER_URL,
     backend=f'db+postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}',
-    include=['tasks.analyze_appeal', 'tasks.generate_response', 'tasks.contextual_response']
+    include=[
+        'tasks.analyze_appeal',
+        'tasks.generate_response',
+        'tasks.contextual_response',
+        'tasks.auto_complete_appeals'
+    ]
 )
 
 # Configuration
@@ -39,6 +44,13 @@ app.conf.update(
     task_soft_time_limit=240,  # 4 minutes soft limit
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    # Periodic tasks (Celery Beat schedule)
+    beat_schedule={
+        'auto-complete-inactive-appeals': {
+            'task': 'tasks.auto_complete_appeals',
+            'schedule': 120.0,  # Every 2 minutes
+        },
+    }
 )
 
 if __name__ == '__main__':

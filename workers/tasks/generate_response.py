@@ -53,6 +53,15 @@ def generate_response(appeal_id: str, subject: str, description: str):
         )
         
         if result['success']:
+            # Проверяем, не простое ли это сообщение
+            if result['answer'].strip() == "SKIP_SIMPLE_MESSAGE":
+                print(f"⏭️ Простое сообщение (приветствие/благодарность) - пропускаем генерацию AI рекомендации")
+                return {
+                    'appeal_id': appeal_id,
+                    'skipped': True,
+                    'reason': 'simple_message'
+                }
+            
             suggested_text = result['answer']
             confidence = result['confidence']
             sources = [article['title']]
@@ -326,23 +335,42 @@ def save_user_message_to_chat(appeal_id: str, message: str):
     conn = psycopg2.connect(**DB_CONFIG)
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Получаем user_id из обращения (если есть зарегистрированный пользователь)
-            cur.execute("SELECT user_id, tracking_number FROM appeals WHERE id = %s", (appeal_id,))
+            # Получаем source из обращения для определения источника
+            cur.execute("SELECT source FROM appeals WHERE id = %s", (appeal_id,))
             result = cur.fetchone()
             
-            if result:
-                # Используем user_id если есть, иначе tracking_number как временный ID
-                sender_id = result['user_id'] if result['user_id'] else result['tracking_number']
-                
-                # Сохраняем сообщение от гражданина
-                cur.execute("""
-                    INSERT INTO chat_messages (appeal_id, sender_id, sender_type, message, created_at)
-                    VALUES (%s, %s, 'citizen', %s, NOW())
-                """, (appeal_id, str(sender_id), message))
-                conn.commit()
-                print(f"   💬 Сохранено сообщение гражданина в чат (sender_id: {sender_id})")
+            if result and result['source'] == 'telegram':
+                # Для Telegram используем системного пользователя
+                cur.execute("SELECT id FROM users WHERE email = 'system@smartsupport.ru' LIMIT 1")
+                system_user = cur.fetchone()
+                if system_user:
+                    sender_id = system_user['id']
+                else:
+                    print(f"   ⚠️ System user not found, skipping chat message")
+                    return
             else:
-                print(f"   ⚠️ Appeal {appeal_id} не найдено")
+                # Для веб используем user_id из appeals
+                cur.execute("SELECT user_id FROM appeals WHERE id = %s", (appeal_id,))
+                appeal_result = cur.fetchone()
+                if appeal_result and appeal_result['user_id']:
+                    sender_id = appeal_result['user_id']
+                else:
+                    # Если нет user_id, используем системного пользователя
+                    cur.execute("SELECT id FROM users WHERE email = 'system@smartsupport.ru' LIMIT 1")
+                    system_user = cur.fetchone()
+                    if system_user:
+                        sender_id = system_user['id']
+                    else:
+                        print(f"   ⚠️ System user not found, skipping chat message")
+                        return
+                
+            # Сохраняем сообщение от гражданина
+            cur.execute("""
+                INSERT INTO chat_messages (appeal_id, sender_id, sender_type, message, created_at)
+                VALUES (%s, %s, 'citizen', %s, NOW())
+            """, (appeal_id, sender_id, message))
+            conn.commit()
+            print(f"   💬 Сохранено сообщение гражданина в чат (sender_id: {sender_id})")
     finally:
         conn.close()
 

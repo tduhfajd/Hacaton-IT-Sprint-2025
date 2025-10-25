@@ -7,6 +7,7 @@ import re
 from celery_app import app
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from gigachat_client import get_gigachat_client
 
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'db'),
@@ -37,9 +38,9 @@ def contextual_response(appeal_id: str):
     # 2. Получить информацию об обращении
     appeal_info = get_appeal_info(appeal_id)
     
-    # 3. Найти релевантные статьи с учётом всего диалога
-    full_context = build_context_string(chat_history, appeal_info)
-    articles = search_knowledge_base_contextual(appeal_info.get('category_suggestion', ''), full_context)
+    # 3. Найти статью по ОРИГИНАЛЬНОЙ категории обращения (не искать заново!)
+    category = appeal_info.get('category_suggestion', '')
+    article = find_article_by_category(category)
     
     # 4. Определить последний вопрос пользователя
     last_citizen_message = next((msg for msg in reversed(chat_history) if msg['sender_type'] == 'citizen'), None)
@@ -48,23 +49,69 @@ def contextual_response(appeal_id: str):
         print(f"⚠️  No citizen messages in chat for {appeal_id}")
         return {'appeal_id': appeal_id, 'no_citizen_message': True}
     
-    # 5. Сгенерировать контекстный ответ
-    if articles:
-        # Есть релевантная статья - генерируем человекоподобный ответ
-        article = articles[0]
+    # Проверка на простое сообщение (уже делает generate_response.py, но для страховки)
+    simple_patterns = [
+        r'^(спасибо|благодарю|спс|ok|ок|понял|понятно|хорошо|ясно)[\.\!\?]*$',
+        r'^(до свидания|всего доброго|пока|bye)[\.\!\?]*$'
+    ]
+    message_normalized = last_citizen_message['message'].strip().lower()
+    for pattern in simple_patterns:
+        if re.match(pattern, message_normalized):
+            print(f"  ⏭️ Простое сообщение ('{message_normalized}') - пропускаем")
+            return {'appeal_id': appeal_id, 'skipped': True, 'reason': 'simple_message'}
+    
+    # 5. Сгенерировать контекстный ответ через GigaChat
+    if article:
+        print(f"  📄 Использую статью: '{article['title']}' (категория: {category})")
         
-        # Используем ту же логику что и в generate_response
-        suggested_text = generate_contextual_human_response(
-            last_question=last_citizen_message['message'],
-            article_content=article['content'],
-            article_title=article['title']
-        )
+        try:
+            gigachat = get_gigachat_client()
+            
+            # Формируем контекст диалога (последние 5 сообщений)
+            dialog_context = "\n".join([
+                f"{'Гражданин' if msg['sender_type'] == 'citizen' else 'Оператор'}: {msg['message']}"
+                for msg in chat_history[-5:]
+            ])
+            
+            # Отправляем в GigaChat с контекстом
+            result = gigachat.generate_answer_from_article(
+                question=f"[История диалога]\n{dialog_context}\n\n[Новый вопрос]\n{last_citizen_message['message']}",
+                article_content=article['content'],
+                article_title=article['title'],
+                max_tokens=512
+            )
+            
+            # Проверяем успешность ответа
+            if not result.get('success', False):
+                raise Exception(result.get('error', 'Unknown error from GigaChat'))
+            
+            suggested_text = result['answer']
+            
+            # Проверка на SKIP_SIMPLE_MESSAGE
+            if suggested_text.strip() == "SKIP_SIMPLE_MESSAGE":
+                print(f"  ⏭️ GigaChat распознал простое сообщение - пропускаем")
+                return {'appeal_id': appeal_id, 'skipped': True, 'reason': 'gigachat_skip'}
+            
+            confidence = result.get('confidence', 0.85)
+            sources = [article['title']]
+            print(f"  ✅ GigaChat сгенерировал контекстный ответ (confidence: {confidence:.2f})")
         
-        confidence = 0.75
-        sources = [article['title']]
-        print(f"  ✅ Сгенерирован контекстный ответ на основе статьи '{article['title']}'")
+        except Exception as e:
+            print(f"  ⚠️ Ошибка GigaChat: {e}")
+            # Fallback: общий ответ
+            suggested_text = f"""Здравствуйте!
+
+Благодарю за дополнительный вопрос. Я передал всю информацию специалисту профильного отдела с учётом нашего предыдущего общения.
+
+Если у вас появятся ещё вопросы, буду рад помочь.
+
+С уважением,
+Служба поддержки"""
+            confidence = 0.4
+            sources = []
     else:
-        # Общий контекстный ответ
+        # Статья не найдена - общий ответ
+        print(f"  ⚠️ Статья для категории '{category}' не найдена")
         suggested_text = f"""Здравствуйте!
 
 Благодарю за дополнительный вопрос. Я передал всю информацию специалисту профильного отдела с учётом нашего предыдущего общения.
@@ -75,7 +122,6 @@ def contextual_response(appeal_id: str):
 Служба поддержки"""
         confidence = 0.4
         sources = []
-        print(f"  ⚠️ Статьи не найдены, использован общий ответ")
     
     # 6. Сохранить контекстный ответ
     save_contextual_response(appeal_id, suggested_text, confidence, sources, len(chat_history))
@@ -88,6 +134,30 @@ def contextual_response(appeal_id: str):
         'confidence': confidence,
         'context_length': len(chat_history)
     }
+
+
+def find_article_by_category(category: str):
+    """
+    Находит статью СТРОГО по категории обращения (не ищет по ключевым словам!)
+    Это гарантирует, что контекстные ответы останутся в рамках темы первого вопроса
+    """
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT kb.id, kb.title, kb.content, c.name as category_name
+                FROM knowledge_base kb
+                LEFT JOIN categories c ON kb.category_id = c.id
+                WHERE kb.is_active = true 
+                AND c.name ILIKE %s
+                ORDER BY kb.updated_at DESC
+                LIMIT 1
+            """, [f'%{category}%'])
+            
+            result = cur.fetchone()
+            return dict(result) if result else None
+    finally:
+        conn.close()
 
 
 def generate_contextual_human_response(last_question: str, article_content: str, article_title: str) -> str:
