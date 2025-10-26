@@ -425,6 +425,26 @@ class TelegramBotService {
 
       console.log(`✅ Appeal created: ${appealId} [Category: ${categoryName}]`);
 
+      // Находим системного пользователя для Telegram сообщений
+      const systemUserResult = await pool.query(
+        `SELECT id FROM users WHERE email = 'system@smartsupport.ru' LIMIT 1`
+      );
+
+      if (!systemUserResult.rows[0]) {
+        console.error('⚠️ System user not found, cannot save initial message');
+      } else {
+        const systemUserId = systemUserResult.rows[0].id;
+
+        // Сохраняем первое сообщение пользователя в chat_messages
+        await pool.query(
+          `INSERT INTO chat_messages (appeal_id, sender_id, sender_type, message, created_at)
+           VALUES ($1, $2, 'citizen', $3, NOW())`,
+          [appealId, systemUserId, messageText]
+        );
+
+        console.log(`✅ Initial message saved to chat_messages for appeal ${appealId}`);
+      }
+
       // Сохраняем appealId в сессии для продолжения диалога
       this.userSessions.set(chatId, {
         waitingForMessage: false,
@@ -434,8 +454,6 @@ class TelegramBotService {
       });
 
       // Отправляем задачу на анализ AI
-      // Примечание: Сообщение пользователя будет сохранено в chat_messages 
-      // автоматически в задаче generate_response
       await rabbitMQService.enqueueAppealAnalysis(appealId, categoryName, messageText);
 
       // Отправляем задачу на генерацию ответа AI
