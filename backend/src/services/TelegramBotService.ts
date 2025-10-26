@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../config/database';
 import { rabbitMQService } from './RabbitMQService';
+import { ChatService } from './ChatService';
 
 // Временное хранилище для данных пользователей
 interface UserSession {
@@ -243,7 +244,7 @@ class TelegramBotService {
     try {
       const result = await pool.query(
         `SELECT id, category_id, subject FROM appeals 
-         WHERE telegram_chat_id = $1 AND status NOT IN ('completed', 'closed')
+         WHERE telegram_chat_id = $1 AND status NOT IN ('completed')
          ORDER BY created_at DESC LIMIT 1`,
         [chatId.toString()]
       );
@@ -276,13 +277,42 @@ class TelegramBotService {
       const systemUserId = systemUserResult.rows[0].id;
 
       // Сохраняем сообщение в чат
-      await pool.query(
+      const messageResult = await pool.query(
         `INSERT INTO chat_messages (appeal_id, sender_id, sender_type, message, created_at)
-         VALUES ($1, $2, 'citizen', $3, NOW())`,
+         VALUES ($1, $2, 'citizen', $3, NOW())
+         RETURNING *`,
         [appealId, systemUserId, messageText]
       );
 
       console.log(`✅ Message saved to chat for appeal ${appealId}`);
+
+      // Отправляем WebSocket событие оператору
+      const io = ChatService.getIO();
+      if (io) {
+        const savedMessage = messageResult.rows[0];
+        io.to(`appeal_${appealId}`).emit('new_message', {
+          id: savedMessage.id,
+          appeal_id: appealId,
+          sender_id: systemUserId,
+          sender_type: 'citizen',
+          message_text: messageText,
+          created_at: savedMessage.created_at
+        });
+        console.log(`📡 WebSocket event 'new_message' sent for appeal ${appealId}`);
+        
+        // Отправляем также событие обновления обращения
+        io.emit('appeal_updated', { appealId, hasNewMessage: true });
+      }
+
+      // Обновляем счетчик непрочитанных и время последней активности
+      await pool.query(
+        `UPDATE appeals 
+         SET unread_operator_count = unread_operator_count + 1,
+             last_activity_at = NOW(),
+             status = 'new'
+         WHERE id = $1 AND status = 'in_progress'`,
+        [appealId]
+      );
 
       // Отправляем подтверждение
       await this.bot!.sendMessage(
@@ -429,9 +459,9 @@ class TelegramBotService {
         return;
       }
 
-      // Отменяем обращение
+      // Отменяем обращение (переводим в completed)
       await pool.query(
-        `UPDATE appeals SET status = 'closed', updated_at = NOW() WHERE id = $1`,
+        `UPDATE appeals SET status = 'completed', updated_at = NOW() WHERE id = $1`,
         [appeal.id]
       );
 
