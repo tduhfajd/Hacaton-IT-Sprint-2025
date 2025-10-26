@@ -37,11 +37,30 @@ class TelegramBotService {
 
 Добро пожаловать в систему обращений Smart Support!
 
-📝 Чтобы отправить обращение, используйте команду /new
-💡 Для помощи используйте /help
+📝 Используйте кнопки ниже для управления обращениями.
         `;
 
-        await this.bot!.sendMessage(chatId, welcomeMessage.trim());
+        // Проверяем, есть ли активное обращение
+        const activeAppeal = await this.findActiveAppeal(chatId);
+
+        const keyboard = {
+          keyboard: activeAppeal 
+            ? [
+                [{ text: '💬 Написать сообщение' }],
+                [{ text: '✅ Завершить обращение' }, { text: '❌ Отменить обращение' }],
+                [{ text: '❓ Помощь' }]
+              ]
+            : [
+                [{ text: '📝 Создать обращение' }],
+                [{ text: '❓ Помощь' }]
+              ],
+          resize_keyboard: true,
+          one_time_keyboard: false
+        };
+
+        await this.bot!.sendMessage(chatId, welcomeMessage.trim(), {
+          reply_markup: keyboard
+        });
       });
 
       // Обработчик команды /new - начало создания обращения
@@ -65,33 +84,7 @@ class TelegramBotService {
       // Обработчик команды /help
       this.bot.onText(/\/help/, async (msg) => {
         const chatId = msg.chat.id;
-
-        const helpMessage = `
-ℹ️ <b>Помощь по боту</b>
-
-<b>📋 Доступные команды:</b>
-/new - Создать новое обращение
-/done - Завершить текущее обращение
-/cancel - Отменить текущее обращение
-/help - Показать эту справку
-
-<b>📝 Как отправить обращение:</b>
-1. Отправьте /new
-2. Выберите категорию из списка
-3. Опишите вашу проблему
-4. Получите ответ от оператора
-
-<b>💬 Диалог:</b>
-• Вы можете продолжать писать сообщения
-• Все они попадают в один чат с оператором
-• Когда вопрос решен, используйте /done
-
-<b>📌 Категории обращений:</b>
-Водоснабжение, Теплоснабжение, Электроснабжение, 
-Благоустройство, Мусор, ЖКУ, и другие
-        `;
-
-        await this.bot!.sendMessage(chatId, helpMessage, { parse_mode: 'HTML' });
+        await this.showHelp(chatId);
       });
 
       // Обработчик callback_query (нажатие на кнопки)
@@ -116,6 +109,45 @@ class TelegramBotService {
         }
 
         const chatId = msg.chat.id;
+        const messageText = msg.text;
+
+        // Обработка кнопок
+        if (messageText === '📝 Создать обращение') {
+          await this.showCategorySelection(chatId);
+          return;
+        }
+
+        if (messageText === '✅ Завершить обращение') {
+          await this.handleDoneCommand(chatId);
+          return;
+        }
+
+        if (messageText === '❌ Отменить обращение') {
+          await this.handleCancelCommand(chatId);
+          return;
+        }
+
+        if (messageText === '❓ Помощь') {
+          await this.showHelp(chatId);
+          return;
+        }
+
+        if (messageText === '💬 Написать сообщение') {
+          const activeAppeal = await this.findActiveAppeal(chatId);
+          if (activeAppeal) {
+            await this.bot!.sendMessage(
+              chatId,
+              '✍️ Напишите ваше сообщение, и оно будет отправлено оператору:'
+            );
+          } else {
+            await this.bot!.sendMessage(
+              chatId,
+              '❌ У вас нет активных обращений. Создайте новое обращение, нажав кнопку "📝 Создать обращение".'
+            );
+          }
+          return;
+        }
+
         const session = this.userSessions.get(chatId);
 
         // Проверяем, есть ли активное обращение для этого пользователя
@@ -429,11 +461,24 @@ class TelegramBotService {
       // Удаляем сессию
       this.userSessions.delete(chatId);
 
+      // Показываем кнопки для нового обращения
+      const keyboard = {
+        keyboard: [
+          [{ text: '📝 Создать обращение' }],
+          [{ text: '❓ Помощь' }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+      };
+
       // Отправляем прощальное сообщение
       await this.bot!.sendMessage(
         chatId,
-        `✅ <b>Обращение завершено!</b>\n\nБлагодарим за обращение в службу поддержки Smart Support.\n\nЕсли у вас возникнут новые вопросы, используйте команду /new\n\nХорошего дня! 👋`,
-        { parse_mode: 'HTML' }
+        `✅ <b>Обращение завершено!</b>\n\nБлагодарим за обращение в службу поддержки Smart Support.\n\nЕсли у вас возникнут новые вопросы, нажмите кнопку "📝 Создать обращение"\n\nХорошего дня! 👋`,
+        { 
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        }
       );
 
       console.log(`✅ Appeal ${appeal.id} marked as completed by user`);
@@ -468,11 +513,24 @@ class TelegramBotService {
       // Удаляем сессию
       this.userSessions.delete(chatId);
 
+      // Показываем кнопки для нового обращения
+      const keyboard = {
+        keyboard: [
+          [{ text: '📝 Создать обращение' }],
+          [{ text: '❓ Помощь' }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+      };
+
       // Отправляем сообщение
       await this.bot!.sendMessage(
         chatId,
-        `🚫 <b>Обращение отменено</b>\n\nВаше обращение было отменено и закрыто.\n\nЕсли передумаете, создайте новое обращение командой /new`,
-        { parse_mode: 'HTML' }
+        `🚫 <b>Обращение отменено</b>\n\nВаше обращение было отменено и закрыто.\n\nЕсли передумаете, нажмите кнопку "📝 Создать обращение"`,
+        { 
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        }
       );
 
       console.log(`✅ Appeal ${appeal.id} cancelled by user`);
@@ -499,6 +557,56 @@ class TelegramBotService {
     }
   }
 
+  private async showHelp(chatId: number): Promise<void> {
+    const helpMessage = `
+ℹ️ <b>Помощь по боту Smart Support</b>
+
+<b>📝 Как отправить обращение:</b>
+1. Нажмите кнопку "📝 Создать обращение"
+2. Выберите категорию из списка
+3. Опишите вашу проблему
+4. Получите ответ от оператора
+
+<b>💬 Диалог:</b>
+• Вы можете продолжать писать сообщения
+• Все они попадают в один чат с оператором
+• Когда вопрос решен, нажмите "✅ Завершить обращение"
+
+<b>📌 Категории обращений:</b>
+Водоснабжение, Теплоснабжение, Электроснабжение, 
+Благоустройство, Мусор, Плата за ЖКУ и другие.
+
+<b>🔘 Кнопки управления:</b>
+📝 Создать обращение - начать новое обращение
+💬 Написать сообщение - продолжить диалог
+✅ Завершить обращение - закрыть текущее обращение
+❌ Отменить обращение - отменить обращение без решения
+
+<i>Используйте кнопки ниже для удобной работы!</i>
+    `;
+
+    // Проверяем, есть ли активное обращение
+    const activeAppeal = await this.findActiveAppeal(chatId);
+
+    const keyboard = {
+      keyboard: activeAppeal 
+        ? [
+            [{ text: '💬 Написать сообщение' }],
+            [{ text: '✅ Завершить обращение' }, { text: '❌ Отменить обращение' }]
+          ]
+        : [
+            [{ text: '📝 Создать обращение' }]
+          ],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    };
+
+    await this.bot!.sendMessage(chatId, helpMessage.trim(), {
+      parse_mode: 'HTML',
+      reply_markup: keyboard
+    });
+  }
+
   async notifyAppealCompleted(chatId: string, operatorName?: string): Promise<void> {
     if (!this.bot) {
       console.warn('Telegram Bot not initialized');
@@ -507,10 +615,23 @@ class TelegramBotService {
 
     try {
       const message = operatorName 
-        ? `✅ <b>Обращение завершено оператором ${operatorName}</b>\n\nБлагодарим за обращение! Если у вас возникнут новые вопросы, используйте /new\n\nХорошего дня! 👋`
-        : `✅ <b>Обращение завершено</b>\n\nБлагодарим за обращение! Если у вас возникнут новые вопросы, используйте /new\n\nХорошего дня! 👋`;
+        ? `✅ <b>Обращение завершено оператором ${operatorName}</b>\n\nБлагодарим за обращение! Если у вас возникнут новые вопросы, нажмите кнопку "📝 Создать обращение"\n\nХорошего дня! 👋`
+        : `✅ <b>Обращение завершено</b>\n\nБлагодарим за обращение! Если у вас возникнут новые вопросы, нажмите кнопку "📝 Создать обращение"\n\nХорошего дня! 👋`;
       
-      await this.bot.sendMessage(parseInt(chatId), message, { parse_mode: 'HTML' });
+      // Показываем кнопки после завершения
+      const keyboard = {
+        keyboard: [
+          [{ text: '📝 Создать обращение' }],
+          [{ text: '❓ Помощь' }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+      };
+      
+      await this.bot.sendMessage(parseInt(chatId), message, { 
+        parse_mode: 'HTML',
+        reply_markup: keyboard
+      });
       console.log(`✅ Completion notification sent to Telegram chat ${chatId}`);
     } catch (error) {
       console.error(`❌ Failed to send completion notification to Telegram chat ${chatId}:`, error);
