@@ -123,7 +123,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
     // Новое сообщение
     socket.on('new_message', (message: Message) => {
       console.log('💬 New message:', message);
-      setMessages(prev => [...prev, message]);
+      
+      // Проверяем на дубликаты перед добавлением
+      setMessages(prev => {
+        // Если это системное сообщение (ephemeral), пропускаем для оператора
+        if (message.sender_type === 'system') {
+          console.log('⏭️ Skipping system message for operator');
+          return prev;
+        }
+        
+        // Проверяем, нет ли уже такого сообщения (по тексту и времени)
+        const isDuplicate = prev.some(m => 
+          m.message_text === message.message_text && 
+          m.sender_type === message.sender_type &&
+          Math.abs(new Date(m.created_at).getTime() - new Date(message.created_at).getTime()) < 1000
+        );
+        
+        if (isDuplicate) {
+          console.log('⏭️ Skipping duplicate message');
+          return prev;
+        }
+        
+        return [...prev, message];
+      });
       
       // Если пришло новое сообщение от гражданина, перезагружаем AI рекомендацию
       // Используем несколько попыток с интервалом, т.к. AI генерирует ответ не мгновенно
