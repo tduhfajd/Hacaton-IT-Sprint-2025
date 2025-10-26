@@ -89,7 +89,7 @@ export class ChatService {
           const messages = await this.getChatHistory(appealId);
           socket.emit('chat_history', messages);
 
-          // Send system message only when citizen joins
+          // Send system message only when citizen joins (only to citizen, not to operator)
           if (userType === 'citizen') {
             const systemMessage: ChatMessage = {
               id: 'system-ephemeral',
@@ -99,7 +99,8 @@ export class ChatService {
               message_text: 'Здравствуйте! Мы анализируем ваше обращение, ожидайте ответ…',
               created_at: new Date().toISOString() as any
             } as any;
-            this.io.to(`appeal_${appealId}`).emit('new_message', systemMessage);
+            // Send only to the citizen who just joined, not to everyone in the room
+            socket.emit('new_message', systemMessage);
           }
           
           // Notify others in the room
