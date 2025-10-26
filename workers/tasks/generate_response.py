@@ -78,14 +78,14 @@ def generate_response(appeal_id: str, subject: str, description: str):
             confidence = 0.6
             sources = [article['title']]
     else:
-        # ⚠️ Нет статей - краткий профессиональный ответ для гражданина
-        # Оператор увидит низкий confidence и поймёт что нужна ручная обработка
-        suggested_text = "Благодарю за обращение. Для решения вашего вопроса потребуется дополнительное время. Я уточню информацию и свяжусь с вами."
-        confidence = 0.3  # Низкая уверенность = сигнал оператору что нужна ручная обработка
+        # ⚠️ Нет статей в указанной категории - информируем оператора
+        # Оператор увидит низкий confidence и четкое сообщение о необходимости добавить статью
+        suggested_text = f"⚠️ В базе знаний пока нет статей по категории \"{subject}\".\n\nРекомендуется:\n1. Добавить статью в админ-панели базы знаний\n2. Или обработать обращение вручную на основе имеющихся знаний"
+        confidence = 0.2  # Очень низкая уверенность = явный сигнал оператору
         sources = []
-        print(f"⚠️ Статьи НЕ НАЙДЕНЫ для категории '{subject}'")
-        print(f"⚠️ Низкий confidence (0.3) - оператор увидит что нужна ручная обработка")
-        print(f"⚠️ Рекомендуется добавить информацию в базу знаний")
+        print(f"⚠️ Статьи НЕ НАЙДЕНЫ в категории '{subject}'")
+        print(f"⚠️ Confidence=0.2 - оператор увидит предупреждение о пустой базе знаний")
+        print(f"💡 Рекомендация: добавить статью в админ-панель (admin-smartsupport.vadimevgrafov.ru)")
     
     # 3. Сохранить сообщение пользователя в чат
     save_user_message_to_chat(appeal_id, description)
@@ -258,8 +258,8 @@ def find_relevant_sections(article: str, keywords: list) -> list:
 
 def search_knowledge_base(category: str, text: str) -> list:
     """
-    Ищет релевантные статьи в ВСЕЙ базе знаний с ранжированием
-    Не ограничивается категорией - ищет по всем статьям
+    Ищет релевантные статьи ТОЛЬКО в указанной категории
+    Если статей в категории нет - возвращает пустой список
     """
     conn = psycopg2.connect(**DB_CONFIG)
     try:
@@ -270,25 +270,24 @@ def search_knowledge_base(category: str, text: str) -> list:
             if not words:
                 words = [category.lower()]
             
-            # Строим запрос с ранжированием релевантности
-            # Приоритет 1: совпадение с категорией обращения
-            # Приоритет 2: совпадение ключевых слов в названии
-            # Приоритет 3: совпадение ключевых слов в тегах
-            # Приоритет 4: совпадение ключевых слов в содержании
+            # ВАЖНО: Ищем ТОЛЬКО в указанной категории
+            # Если статей в категории нет - вернем пустой список
+            # Это позволит оператору понять, что нужно добавить информацию в БЗ
             
-            conditions = []
-            params = []
+            # Строим условия для поиска внутри категории
+            keyword_conditions = []
+            keyword_params = []
             
-            # Категория (высший приоритет)
-            conditions.append("c.name ILIKE %s")
-            params.append(f'%{category}%')
-            
-            # Ключевые слова в разных полях
+            # Ключевые слова в разных полях (внутри категории)
             for word in words[:5]:  # Топ-5 слов
-                conditions.append(f"(kb.title ILIKE %s OR kb.content ILIKE %s OR %s = ANY(kb.tags))")
-                params.extend([f'%{word}%', f'%{word}%', word])
+                keyword_conditions.append(f"(kb.title ILIKE %s OR kb.content ILIKE %s OR %s = ANY(kb.tags))")
+                keyword_params.extend([f'%{word}%', f'%{word}%', word])
             
-            where_clause = ' OR '.join(conditions)
+            # Если нет ключевых слов - ищем просто по категории
+            if keyword_conditions:
+                keyword_where = ' OR '.join(keyword_conditions)
+            else:
+                keyword_where = "true"  # Найдем все статьи категории
             
             cur.execute(f"""
                 SELECT 
@@ -296,9 +295,8 @@ def search_knowledge_base(category: str, text: str) -> list:
                     kb.title, 
                     kb.content, 
                     c.name as category_name,
-                    -- Рассчитываем релевантность
+                    -- Рассчитываем релевантность внутри категории
                     (
-                        CASE WHEN c.name ILIKE %s THEN 100 ELSE 0 END +
                         CASE WHEN kb.title ILIKE %s THEN 50 ELSE 0 END +
                         CASE WHEN kb.title ILIKE %s THEN 30 ELSE 0 END +
                         CASE WHEN %s = ANY(kb.tags) THEN 40 ELSE 0 END +
@@ -307,23 +305,27 @@ def search_knowledge_base(category: str, text: str) -> list:
                 FROM knowledge_base kb
                 LEFT JOIN categories c ON kb.category_id = c.id
                 WHERE kb.is_active = true 
-                AND ({where_clause})
+                AND c.name ILIKE %s
+                AND ({keyword_where})
                 ORDER BY relevance_score DESC, kb.updated_at DESC
                 LIMIT 3
             """, [
-                f'%{category}%',  # категория в score
                 f'%{words[0]}%' if words else '%',  # первое слово в title
                 f'%{words[1]}%' if len(words) > 1 else '%',  # второе слово в title
                 words[0] if words else '',  # первое слово в tags
                 f'%{words[0]}%' if words else '%',  # первое слово в content
-                *params  # параметры для WHERE
+                f'%{category}%',  # ОБЯЗАТЕЛЬНО в указанной категории
+                *keyword_params  # параметры для keyword_where
             ])
             
             results = cur.fetchall()
             
-            # Логируем релевантность
-            for r in results:
-                print(f"  📄 Найдена статья: '{r['title']}' (релевантность: {r.get('relevance_score', 0)})")
+            if results:
+                print(f"✅ Найдено статей в категории '{category}': {len(results)}")
+                for r in results:
+                    print(f"  📄 '{r['title']}' (релевантность: {r.get('relevance_score', 0)})")
+            else:
+                print(f"⚠️ Статьи НЕ НАЙДЕНЫ в категории '{category}'")
             
             return results
     finally:
