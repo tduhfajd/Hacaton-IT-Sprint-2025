@@ -18,6 +18,20 @@ interface AIResponse {
   priority_suggestion?: string;
 }
 
+interface AppealInfo {
+  id: string;
+  tracking_number: string;
+  subject: string;
+  description: string;
+  user_name?: string;
+  user_email?: string;
+  source?: string;
+  telegram_username?: string;
+  priority?: string;
+  sentiment_type?: string;
+  created_at: string;
+}
+
 interface ChatWindowProps {
   appealId: string;
   operatorId: string;
@@ -44,6 +58,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [aiExpanded, setAiExpanded] = useState(true);
+  const [appealInfo, setAppealInfo] = useState<AppealInfo | null>(null);
+  const [showUserInfo, setShowUserInfo] = useState(true);
   
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -77,9 +93,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
     }
   };
 
-  // Загрузка AI ответа при монтировании
+  // Функция для загрузки информации об обращении
+  const fetchAppealInfo = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/appeals/${appealId}`);
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setAppealInfo(data.data.appeal);
+      }
+    } catch (error) {
+      console.error('Failed to load appeal info:', error);
+    }
+  };
+
+  // Загрузка AI ответа и информации об обращении при монтировании
   useEffect(() => {
     fetchAIResponse();
+    fetchAppealInfo();
   }, [appealId]);
 
   useEffect(() => {
@@ -362,6 +393,77 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
             </button>
           </div>
         </div>
+
+        {/* Информация о пользователе */}
+        {appealInfo && (
+          <div className="border-b border-gray-200 bg-white">
+            <button
+              onClick={() => setShowUserInfo(!showUserInfo)}
+              className="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-50 transition"
+            >
+              <span className="text-sm font-semibold text-gray-700">
+                ℹ️ Информация о заявителе
+              </span>
+              <span className="text-gray-500">{showUserInfo ? '▼' : '▶'}</span>
+            </button>
+            
+            {showUserInfo && (
+              <div className="px-4 pb-3 grid grid-cols-2 gap-3 text-sm">
+                {appealInfo.user_name && (
+                  <div>
+                    <span className="text-gray-500">ФИО:</span>
+                    <p className="font-medium text-gray-900">{appealInfo.user_name}</p>
+                  </div>
+                )}
+                
+                {appealInfo.user_email && (
+                  <div>
+                    <span className="text-gray-500">Email:</span>
+                    <p className="font-medium text-gray-900">{appealInfo.user_email}</p>
+                  </div>
+                )}
+                
+                <div>
+                  <span className="text-gray-500">Источник:</span>
+                  <p className="font-medium text-gray-900">
+                    {appealInfo.source === 'telegram' ? '📱 Telegram' : 
+                     appealInfo.source === 'web' ? '🌐 Web' : 
+                     appealInfo.source || 'Неизвестно'}
+                    {appealInfo.telegram_username && ` (@${appealInfo.telegram_username})`}
+                  </p>
+                </div>
+                
+                <div>
+                  <span className="text-gray-500">Категория:</span>
+                  <p className="font-medium text-gray-900">{appealInfo.subject || 'Не указана'}</p>
+                </div>
+                
+                {appealInfo.priority && (
+                  <div>
+                    <span className="text-gray-500">Приоритет:</span>
+                    <p className="font-medium text-gray-900">
+                      {appealInfo.priority === 'critical' ? '🔴 Критический' :
+                       appealInfo.priority === 'high' ? '🟠 Высокий' :
+                       appealInfo.priority === 'medium' ? '🟡 Средний' :
+                       '🟢 Низкий'}
+                    </p>
+                  </div>
+                )}
+                
+                {appealInfo.sentiment_type && (
+                  <div>
+                    <span className="text-gray-500">Тональность:</span>
+                    <p className="font-medium text-gray-900">
+                      {appealInfo.sentiment_type === 'positive' ? '😊 Позитивная' :
+                       appealInfo.sentiment_type === 'negative' ? '😠 Негативная' :
+                       '😐 Нейтральная'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Область сообщений */}
         <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
