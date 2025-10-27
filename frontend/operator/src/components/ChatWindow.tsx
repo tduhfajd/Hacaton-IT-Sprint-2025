@@ -426,10 +426,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ appealId, operatorId, onClose, 
                   </div>
                 )}
                 
-                {(appealInfo.user_contact_email || appealInfo.user_email) && (
+                {((appealInfo.user_contact_email && !appealInfo.user_contact_email.includes('@guest.local')) || 
+                  (appealInfo.user_email && !appealInfo.user_email.includes('@guest.local'))) && (
                   <div>
                     <span className="text-gray-500">Email:</span>
-                    <p className="font-medium text-gray-900">{appealInfo.user_contact_email || appealInfo.user_email}</p>
+                    <p className="font-medium text-gray-900">
+                      {(appealInfo.user_contact_email && !appealInfo.user_contact_email.includes('@guest.local')) 
+                        ? appealInfo.user_contact_email 
+                        : appealInfo.user_email}
+                    </p>
                   </div>
                 )}
                 

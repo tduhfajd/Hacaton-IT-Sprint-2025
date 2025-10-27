@@ -26,21 +26,30 @@ export class AppealController {
       let citizenUserId: string | null = req.user?.userId || null;
       if (!citizenUserId) {
         const fullName: string = req.body.full_name || req.body.fullName || 'Гражданин';
-        const emailRaw: string = req.body.email || '';
-        const generatedEmail = emailRaw && typeof emailRaw === 'string'
-          ? emailRaw
-          : `guest-${Date.now()}-${Math.random().toString(36).slice(2,8)}@guest.local`;
+        const email: string | null = req.body.email && req.body.email.trim() !== '' ? req.body.email.trim() : null;
         const phone: string | null = req.body.phone || null;
-        // Try find existing by email, else create minimal citizen user
-        const existing = await pool.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [generatedEmail]);
-        if (existing.rowCount && existing.rows[0]?.id) {
-          citizenUserId = existing.rows[0].id;
+        
+        // If email is provided, try to find existing user by email
+        if (email) {
+          const existing = await pool.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [email]);
+          if (existing.rowCount && existing.rows[0]?.id) {
+            citizenUserId = existing.rows[0].id;
+          } else {
+            const created = await pool.query(
+              `INSERT INTO users (email, password_hash, full_name, phone, role, is_active)
+               VALUES ($1, $2, $3, $4, 'citizen', true)
+               RETURNING id`,
+              [email, 'guest', fullName, phone]
+            );
+            citizenUserId = created.rows[0].id;
+          }
         } else {
+          // If no email provided, create a new user without email (no deduplication)
           const created = await pool.query(
             `INSERT INTO users (email, password_hash, full_name, phone, role, is_active)
              VALUES ($1, $2, $3, $4, 'citizen', true)
              RETURNING id`,
-            [generatedEmail, 'guest', fullName, phone]
+            [null, 'guest', fullName, phone]
           );
           citizenUserId = created.rows[0].id;
         }
