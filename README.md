@@ -125,49 +125,36 @@ SmartSupport — это инновационная система обработ
 
 ### Общая схема
 
-```
-┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
-│   Гражданин     │◄────►│   Frontend User   │◄────►│                 │
-│  (Web/Telegram) │      │   (React/Vite)    │      │                 │
-└─────────┬───────┘      └──────────────────┘      │                 │
-          │                                         │                 │
-          │              ┌──────────────────┐      │                 │
-          └─────────────►│  Telegram Bot    │      │                 │
-                         │  (node-telegram- │      │                 │
-                         │   bot-api)       │      │   nginx-proxy   │
-                         └────────┬─────────┘      │ (Let's Encrypt) │
-                                  │                │                 │
-┌─────────────────┐      ┌───────▼──────────┐      │                 │
-│   Оператор      │◄────►│Frontend Operator │◄────►│                 │
-│                 │      │   (React/Vite)    │      │                 │
-└─────────────────┘      └──────────────────┘      │                 │
-                                                    │                 │
-┌─────────────────┐      ┌──────────────────┐      │                 │
-│ Администратор   │◄────►│  Frontend Admin   │◄────►│                 │
-│                 │      │   (React/Vite)    │      └────────┬────────┘
-└─────────────────┘      └──────────────────┘               │
-                                                            │
-                        ┌──────────────────┐               │
-                        │  Backend API     │◄──────────────┘
-                        │ (Node.js/Express)│
-                        │  + WebSocket     │
-                        │  + Telegram Bot  │
-                        └────────┬─────────┘
-                                 │
-                   ┌─────────────┼─────────────┐
-                   │             │             │
-           ┌───────▼──────┐ ┌───▼────────┐ ┌─▼────────────┐
-           │  PostgreSQL  │ │   Redis    │ │  RabbitMQ    │
-           │   (База      │ │(Кэш/Сессии)│ │  (Очереди)   │
-           │   данных)    │ │            │ │              │
-           └──────────────┘ └────────────┘ └──────┬───────┘
-                                                   │
-                                           ┌───────▼────────┐
-                                           │ Celery Workers │
-                                           │   (Python)     │
-                                           │  + GigaChat API│
-                                           │  + Celery Beat │
-                                           └────────────────┘
+```mermaid
+flowchart LR
+    citizen["Гражданин<br/>(Web/Telegram)"]
+    frontUser["Frontend User<br/>(React/Vite)"]
+    frontOperator["Frontend Operator<br/>(React/Vite)"]
+    frontAdmin["Frontend Admin<br/>(React/Vite)"]
+    telegramBot["Telegram Bot<br/>(node-telegram-bot-api)"]
+    nginx["nginx-proxy<br/>(Let's Encrypt)"]
+    backend["Backend API<br/>(Node.js/Express + WebSocket + Telegram Bot)"]
+    postgres["PostgreSQL<br/>(База данных)"]
+    redis["Redis<br/>(Кэш/Сессии)"]
+    rabbit["RabbitMQ<br/>(Очереди)"]
+    workers["Celery Workers<br/>(Python + GigaChat API + Celery Beat)"]
+
+    citizen <--> frontUser
+    frontUser <--> nginx
+    telegramBot --> backend
+    citizen --> telegramBot
+    frontOperator <--> nginx
+    frontOperator --> backend
+    frontAdmin <--> nginx
+    frontAdmin --> backend
+    nginx --> backend
+    backend --> postgres
+    backend --> redis
+    backend --> rabbit
+    backend --> telegramBot
+    rabbit --> workers
+    workers --> postgres
+    workers --> rabbit
 ```
 
 ### Компоненты системы
@@ -1187,36 +1174,45 @@ def search_knowledge_base(category: str, text: str) -> list:
 
 #### Сценарий работы с Telegram
 
-```
-Гражданин                  Telegram Bot              Backend/DB              Оператор
-    │                           │                         │                       │
-    ├─ /start ────────────────►│                         │                       │
-    │◄────── Категории ─────────┤                         │                       │
-    │                           │                         │                       │
-    ├─ Категория ──────────────►│                         │                       │
-    │   (inline button)          │                         │                       │
-    │◄────── "Опишите" ─────────┤                         │                       │
-    │                           │                         │                       │
-    ├─ "Проблема X" ───────────►│                         │                       │
-    │                           ├─── createAppeal ───────►│                       │
-    │                           │                         ├─ new_appeal ─────────►│
-    │                           │                         │◄── ИИ-рекомендация ───┤
-    │◄── "Получено" ────────────┤                         │                       │
-    │                           │                         │                       │
-    │                           │◄─── operatorMessage ────┤◄───── Ответ ──────────┤
-    │◄── Ответ оператора ───────┤                         │                       │
-    │                           │                         │                       │
-    ├─ Доп. вопрос ────────────►│                         │                       │
-    │                           ├─── saveMessage ────────►│                       │
-    │                           │                         ├─ new_message ────────►│
-    │                           │                         │◄── ИИ-рекомендация ───┤
-    │                           │                         │                       │
-    │   ... диалог ...           │                         │                       │
-    │                           │                         │                       │
-    │   (5 мин неактивности)     │                         │                       │
-    │                           │◄─── autoComplete ───────┤                       │
-    │◄── "Завершено" ───────────┤                         │                       │
-    │                           │                         │                       │
+```mermaid
+sequenceDiagram
+    participant Citizen as Гражданин
+    participant Bot as Telegram Bot
+    participant Backend as Backend/DB
+    participant Operator as Оператор
+
+    Citizen->>Bot: /start
+    Bot-->>Citizen: Список категорий
+    Citizen->>Bot: Выбор категории (inline)
+    Bot-->>Citizen: "Опишите проблему"
+    Citizen->>Bot: "Проблема X"
+    Bot->>Backend: createAppeal
+    Backend->>Operator: new_appeal
+    Note over Backend,Operator: ИИ-рекомендация для оператора
+    Backend-->>Bot: "Получено"
+    Bot-->>Citizen: Подтверждение получения
+
+    Operator->>Backend: Ответ операторa
+    Backend-->>Bot: operatorMessage
+    Bot-->>Citizen: Ответ оператора
+
+    Citizen->>Bot: Дополнительный вопрос
+    Bot->>Backend: saveMessage
+    Backend->>Operator: new_message
+    Note over Backend,Operator: ИИ-подсказка по новому сообщению
+
+    loop Диалог
+        Citizen->>Bot: Сообщение
+        Bot->>Backend: saveMessage
+        Backend->>Operator: new_message
+        Operator->>Backend: Ответ
+        Backend->>Bot: operatorMessage
+        Bot-->>Citizen: Ответ оператора
+    end
+
+    Note over Bot,Citizen: 5 минут неактивности
+    Backend->>Bot: autoComplete
+    Bot-->>Citizen: "Диалог завершён"
 ```
 
 #### Хранение сессий в Redis
