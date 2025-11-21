@@ -14,32 +14,32 @@
 
 ```mermaid
 flowchart TB
-    subgraph EntryPoints[Каналы пользователей]
-        citizen[Citizen Agents]
-        telegram[Telegram Agents]
-        landing[Landing Agent]
+    subgraph EntryPoints ["Каналы пользователей"]
+        citizen["Citizen Agents"]
+        telegram["Telegram Agents"]
+        landing["Landing Agent"]
     end
 
-    subgraph Operators[Рабочие интерфейсы]
-        operator[Operator Agents]
-        admin[Admin Agent]
+    subgraph Workspaces ["Рабочие интерфейсы"]
+        operator["Operator Agents"]
+        admin["Admin Agent"]
     end
 
     gateway[[API Gateway]]
-    orchestrator[Orchestrator Agent<br/>(backend)]
-    ai[AI Analysis Agent<br/>(Celery)]
-    knowledge[Knowledge Agent]
+    orchestrator["Orchestrator Agent (backend)"]
+    ai["AI Analysis Agent (Celery)"]
+    knowledge["Knowledge Agent"]
     rabbitmq[(RabbitMQ)]
     postgres[(PostgreSQL)]
-    monitoring[Monitoring/Admin Agents]
+    monitoring["Monitoring/Admin Agents"]
     gigachat[[GigaChat API]]
     kb[(Knowledge Base)]
 
-    citizen -- HTTP --> gateway
-    telegram -- HTTP/Bot API --> gateway
-    landing -- HTTP --> gateway
-    operator -- WebSocket --> gateway
-    admin -- REST --> gateway
+    citizen -- "HTTP" --> gateway
+    telegram -- "Bot API" --> gateway
+    landing -- "HTTP" --> gateway
+    operator -- "WebSocket" --> gateway
+    admin -- "REST" --> gateway
 
     gateway --> orchestrator
     orchestrator --> rabbitmq
@@ -47,14 +47,15 @@ flowchart TB
     orchestrator --> knowledge
     knowledge --> kb
     knowledge --> postgres
+    rabbitmq --> ai
     ai --> postgres
     ai --> knowledge
-    rabbitmq --> ai
     ai --> gigachat
-    monitoring <-- control/metrics --> orchestrator
-    monitoring <-- metrics --> rabbitmq
-    monitoring <-- logs --> postgres
-    orchestrator -- events --> operator
+    orchestrator -- "events" --> operator
+    orchestrator -- "updates" --> admin
+    monitoring -- "control/metrics" --> orchestrator
+    monitoring -- "metrics" --> rabbitmq
+    monitoring -- "logs" --> postgres
 ```
 
 ## 🤖 Агентные роли
