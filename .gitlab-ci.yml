@@ -8,7 +8,6 @@ cache:
     - .cache/pip
 
 stages:
-  - build
   - deploy
 
 before_script:
@@ -18,172 +17,125 @@ before_script:
 pages:
   stage: deploy
   script:
+    - echo "📚 Building static site from Wiki..."
+    
+    # Используем локальные файлы wiki
     - |
-      echo "📚 Building static site from Wiki..."
-      
-      # Клонируем Wiki репозиторий
-      WIKI_REPO="https://gitlab.vadimevgrafov.ru/it-sprint/it-support.wiki.git"
-      
-      if [ -n "$CI_JOB_TOKEN" ]; then
-        # Используем CI_JOB_TOKEN для аутентификации
-        WIKI_REPO="https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.vadimevgrafov.ru/it-sprint/it-support.wiki.git"
-      fi
-      
-      echo "🔄 Preparing Wiki content..."
-      
-      # Пробуем использовать локальные файлы wiki, если они есть
       if [ -d "wiki" ] && [ "$(ls -A wiki/*.md 2>/dev/null)" ]; then
         echo "✅ Using local wiki files..."
-        mkdir -p site-content
-        cp wiki/*.md site-content/ 2>/dev/null || true
-        # Создаем home.md из README.md если его нет
-        if [ ! -f "site-content/home.md" ] && [ -f "site-content/README.md" ]; then
-          cp site-content/README.md site-content/home.md
+        mkdir -p docs
+        cp wiki/*.md docs/ 2>/dev/null || true
+        if [ ! -f "docs/index.md" ] && [ -f "docs/home.md" ]; then
+          cp docs/home.md docs/index.md
         fi
       else
-        echo "⚠️  No local wiki files, trying to clone Wiki repository..."
-        git clone --depth 1 "$WIKI_REPO" wiki-content || {
-          echo "❌ Cannot clone wiki and no local files found!"
-          exit 1
-        }
-        mkdir -p site-content
-        cp wiki-content/*.md site-content/ 2>/dev/null || true
-      fi
-      
-      # Проверяем наличие файлов
-      if [ ! "$(ls -A site-content/*.md 2>/dev/null)" ]; then
-        echo "❌ No markdown files found in wiki content!"
+        echo "❌ No wiki files found!"
         exit 1
       fi
       
-      echo "📄 Found files: $(ls site-content/*.md | wc -l) markdown files"
+    # Создаем простой mkdocs.yml
+    - |
+      cat > mkdocs.yml << 'ENDCONFIG'
+      site_name: IT Support Wiki
+      site_description: Документация проекта IT Support
+      site_url: https://itsprint.pages.vadimevgrafov.ru
+      repo_url: https://gitlab.vadimevgrafov.ru/it-sprint/it-support
+      repo_name: IT Support
+      theme:
+        name: material
+        palette:
+          - scheme: default
+            primary: blue
+            accent: blue
+            toggle:
+              icon: material/brightness-7
+              name: Switch to dark mode
+          - scheme: slate
+            primary: blue
+            accent: blue
+            toggle:
+              icon: material/brightness-4
+              name: Switch to light mode
+        features:
+          - navigation.tabs
+          - navigation.sections
+          - navigation.expand
+          - navigation.indexes
+          - navigation.top
+          - search.suggest
+          - search.highlight
+          - content.code.annotate
+          - content.code.copy
+          - content.tabs.link
+      plugins:
+        - search
+        - git-revision-date-localized:
+            enable_creation_date: true
+      markdown_extensions:
+        - pymdownx.highlight:
+            anchor_linenums: true
+        - pymdownx.inlinehilite
+        - pymdownx.snippets
+        - pymdownx.superfences
+        - pymdownx.tabbed:
+            alternate_style: true
+        - pymdownx.tasklist:
+            custom_checkbox: true
+        - toc:
+            permalink: true
+        - tables
+        - attr_list
+        - md_in_html
+      ENDCONFIG
       
-      # Создаем mkdocs.yml
-      cat > mkdocs.yml << 'EOF'
-site_name: IT Support Wiki
-site_description: Документация проекта IT Support
-site_url: https://itsprint.pages.vadimevgrafov.ru
-
-repo_url: https://gitlab.vadimevgrafov.ru/it-sprint/it-support
-repo_name: IT Support
-
-theme:
-  name: material
-  palette:
-    - scheme: default
-      primary: blue
-      accent: blue
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - scheme: slate
-      primary: blue
-      accent: blue
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
-  features:
-    - navigation.tabs
-    - navigation.sections
-    - navigation.expand
-    - navigation.indexes
-    - navigation.top
-    - search.suggest
-    - search.highlight
-    - content.code.annotate
-    - content.code.copy
-    - content.tabs.link
-
-plugins:
-  - search
-  - git-revision-date-localized:
-      enable_creation_date: true
-
-markdown_extensions:
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
-  - pymdownx.tabbed:
-      alternate_style: true
-  - pymdownx.tasklist:
-      custom_checkbox: true
-  - toc:
-      permalink: true
-  - tables
-  - attr_list
-  - md_in_html
-
-nav:
-  - Home: home.md
-EOF
-
-      # Определяем nav автоматически из файлов Wiki
-      echo "🔍 Auto-generating navigation from wiki files..."
-      python3 << 'PYEOF'
-import os
-import re
-from pathlib import Path
-
-wiki_dir = Path("site-content")
-nav_items = []
-
-# Проверяем наличие home.md или README.md
-if (wiki_dir / "home.md").exists():
-    nav_items.append("  - Home: home.md")
-elif (wiki_dir / "README.md").exists():
-    nav_items.append("  - Home: README.md")
-    # Создаем home.md из README.md
-    import shutil
-    shutil.copy(wiki_dir / "README.md", wiki_dir / "home.md")
-
-# Находим все .md файлы и сортируем
-md_files = sorted([f for f in wiki_dir.glob("*.md") 
-                   if f.name not in ["home.md", "README.md"]])
-
-for md_file in md_files:
-    # Читаем первую строку как заголовок
-    with open(md_file, 'r', encoding='utf-8') as f:
-        first_line = f.readline().strip()
-        # Убираем # и лишние пробелы
-        title = re.sub(r'^#+\s*', '', first_line)
-        if not title:
-            title = md_file.stem.replace('-', ' ').replace('_', ' ').title()
-        
-        nav_items.append(f'  - {title}: {md_file.name}')
-
-# Обновляем mkdocs.yml
-with open("mkdocs.yml", 'r', encoding='utf-8') as f:
-    content = f.read()
-
-# Заменяем nav секцию
-nav_start = content.find('nav:')
-nav_end = content.find('\nEOF', nav_start)
-if nav_start != -1:
-    old_nav = content[nav_start:nav_end]
-    new_nav = 'nav:\n' + '\n'.join(nav_items) + '\nEOF'
-    content = content.replace(old_nav, new_nav.rstrip('EOF') + '\nEOF')
-
-with open("mkdocs.yml", 'w', encoding='utf-8') as f:
-    f.write(content)
-
-print(f"✅ Generated navigation with {len(md_files)} pages")
-PYEOF
+    # Генерируем навигацию из файлов
+    - |
+      python3 << 'ENDPYTHON'
+      import os
+      import re
+      from pathlib import Path
       
-      # Создаем docs директорию для MkDocs
-      mkdir -p docs
-      cp -r site-content/* docs/ 2>/dev/null || true
+      docs_dir = Path("docs")
+      nav_items = []
       
-      # Строим сайт
-      echo "🏗️  Building static site..."
-      mkdocs build --site-dir public
+      # Проверяем наличие index.md или home.md
+      if (docs_dir / "index.md").exists():
+          nav_items.append("  - Home: index.md")
+      elif (docs_dir / "home.md").exists():
+          nav_items.append("  - Home: home.md")
+      elif (docs_dir / "README.md").exists():
+          nav_items.append("  - Home: README.md")
       
-      # Проверяем результат
+      # Находим все .md файлы и сортируем
+      md_files = sorted([f for f in docs_dir.glob("*.md") 
+                         if f.name not in ["index.md", "home.md", "README.md"]])
+      
+      for md_file in md_files:
+          try:
+              with open(md_file, 'r', encoding='utf-8') as f:
+                  first_line = f.readline().strip()
+                  title = re.sub(r'^#+\s*', '', first_line)
+                  if not title:
+                      title = md_file.stem.replace('-', ' ').replace('_', ' ').title()
+                  nav_items.append(f'  - {title}: {md_file.name}')
+          except:
+              pass
+      
+      # Добавляем nav секцию в mkdocs.yml
+      with open("mkdocs.yml", 'a', encoding='utf-8') as f:
+          f.write('\nnav:\n')
+          for item in nav_items:
+              f.write(item + '\n')
+      
+      print(f"✅ Generated navigation with {len(nav_items)} pages")
+      ENDPYTHON
+      
+    # Строим сайт
+    - echo "🏗️  Building static site..."
+    - mkdocs build --site-dir public
+    
+    # Проверяем результат
+    - |
       if [ -d "public" ] && [ "$(ls -A public)" ]; then
         echo "✅ Site built successfully!"
         ls -lah public/
@@ -196,6 +148,7 @@ PYEOF
     paths:
       - public
     expire_in: 1 hour
+    
   # Запускается только при изменении файлов в wiki/ или при ручном запуске
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
@@ -207,7 +160,7 @@ PYEOF
       when: manual
       allow_failure: true
     - when: never
+    
   environment:
     name: pages
     url: https://itsprint.pages.vadimevgrafov.ru
-
