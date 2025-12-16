@@ -1,0 +1,258 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16
+    container_name: smart-support-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smart_support}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongPasswordChange2025!}
+    volumes:
+      - smart-support-db-data:/var/lib/postgresql/data
+    networks:
+      - nginx-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d smart_support"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: smart-support-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - smart-support-redis-data:/data
+    networks:
+      - nginx-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: smart-support-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-SmartSupport2025!}
+      VIRTUAL_HOST: ${VIRTUAL_HOST_RABBITMQ:-rabbitmq-smartsupport.vadimevgrafov.ru}
+      VIRTUAL_PORT: 15672
+      LETSENCRYPT_HOST: ${VIRTUAL_HOST_RABBITMQ:-rabbitmq-smartsupport.vadimevgrafov.ru}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@vadimevgrafov.ru}
+    volumes:
+      - smart-support-rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - nginx-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - db
+      - redis
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: smart-support-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      # Database connection (both formats for compatibility)
+      DB_HOST: smart-support-db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-smart_support}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-StrongPasswordChange2025!}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-StrongPasswordChange2025!}@smart-support-db:5432/${POSTGRES_DB:-smart_support}
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-SmartSupport2025!}@smart-support-rabbitmq:5672
+      REDIS_URL: redis://smart-support-redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-key-in-production}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      CORS_ORIGINS: https://operator-smartsupport.vadimevgrafov.ru,https://user-smartsupport.vadimevgrafov.ru,https://admin-smartsupport.vadimevgrafov.ru,https://smartsupport.vadimevgrafov.ru
+      VIRTUAL_HOST: ${VIRTUAL_HOST_API:-api-smartsupport.vadimevgrafov.ru}
+      VIRTUAL_PORT: 3001
+      LETSENCRYPT_HOST: ${VIRTUAL_HOST_API:-api-smartsupport.vadimevgrafov.ru}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@vadimevgrafov.ru}
+      WEBSOCKET: "true"
+    volumes:
+      - ./files:/app/files
+    networks:
+      - nginx-net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+
+  # Celery Worker (Python AI Tasks)
+  celery-worker:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    container_name: smart-support-celery-worker
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: smart-support-rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-SmartSupport2025!}
+      DB_HOST: smart-support-db
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-smart_support}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongPasswordChange2025!}
+      GIGACHAT_CLIENT_ID: ${GIGACHAT_CLIENT_ID}
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      # Отключаем прокси для GigaChat API
+      NO_PROXY: "*"
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    networks:
+      - nginx-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    command: celery -A celery_app worker --loglevel=info --concurrency=2
+
+  # Celery Beat (Periodic Tasks Scheduler)
+  celery-beat:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    container_name: smart-support-celery-beat
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: smart-support-rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-SmartSupport2025!}
+      DB_HOST: smart-support-db
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-smart_support}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongPasswordChange2025!}
+      GIGACHAT_CLIENT_ID: ${GIGACHAT_CLIENT_ID}
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      NO_PROXY: "*"
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    networks:
+      - nginx-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    command: celery -A celery_app beat --loglevel=info
+
+  # Landing Page
+  landing:
+    build:
+      context: ./landing
+      dockerfile: Dockerfile
+    container_name: smart-support-landing
+    restart: unless-stopped
+    environment:
+      VIRTUAL_HOST: ${VIRTUAL_HOST_LANDING:-smartsupport.vadimevgrafov.ru}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${VIRTUAL_HOST_LANDING:-smartsupport.vadimevgrafov.ru}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@vadimevgrafov.ru}
+    networks:
+      - nginx-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Frontend - User Interface
+  frontend-user:
+    build:
+      context: ./frontend/user
+      dockerfile: Dockerfile
+    container_name: smart-support-frontend-user
+    restart: unless-stopped
+    environment:
+      VIRTUAL_HOST: ${VIRTUAL_HOST_USER:-user-smartsupport.vadimevgrafov.ru}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${VIRTUAL_HOST_USER:-user-smartsupport.vadimevgrafov.ru}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@vadimevgrafov.ru}
+    networks:
+      - nginx-net
+    depends_on:
+      - backend
+
+  # Frontend - Operator Dashboard
+  frontend-operator:
+    build:
+      context: ./frontend/operator
+      dockerfile: Dockerfile
+    container_name: smart-support-frontend-operator
+    restart: unless-stopped
+    environment:
+      VIRTUAL_HOST: ${VIRTUAL_HOST_OPERATOR:-operator-smartsupport.vadimevgrafov.ru}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${VIRTUAL_HOST_OPERATOR:-operator-smartsupport.vadimevgrafov.ru}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@vadimevgrafov.ru}
+    networks:
+      - nginx-net
+    depends_on:
+      - backend
+
+  # Frontend - Admin Panel (Knowledge Base)
+  frontend-admin:
+    build:
+      context: ./frontend/admin
+      dockerfile: Dockerfile
+    container_name: smart-support-frontend-admin
+    restart: unless-stopped
+    environment:
+      VIRTUAL_HOST: ${VIRTUAL_HOST_ADMIN:-admin-smartsupport.vadimevgrafov.ru}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${VIRTUAL_HOST_ADMIN:-admin-smartsupport.vadimevgrafov.ru}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@vadimevgrafov.ru}
+    networks:
+      - nginx-net
+    depends_on:
+      - backend
+
+volumes:
+  smart-support-db-data:
+    external: true
+  smart-support-redis-data:
+    external: true
+  smart-support-rabbitmq-data:
+    external: true
+
+networks:
+  nginx-net:
+    external: true

@@ -467,7 +467,7 @@ knowledge_base/
 *~
 
 # Backup files
-*.backup
+# *.backup  # Разрешено для тестового проекта
 *.bak
 *.old
 
