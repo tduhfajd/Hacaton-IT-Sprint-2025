@@ -45,8 +45,8 @@
 ### Сертификаты
 
 <p align="center">
-  <img src="./docs/assets/certificates/it-sprint-2025-absolute-winner.jpeg" alt="Диплом абсолютного победителя ИТ-Спринт 2025" width="46%">
-  <img src="./docs/assets/certificates/it-sprint-2025-case-winner.jpeg" alt="Диплом победителя кейса ИТ-Спринт 2025" width="46%">
+  <img src="./docs/assets/certificates/it-sprint-2025-absolute-winner.png" alt="Диплом абсолютного победителя ИТ-Спринт 2025" width="46%">
+  <img src="./docs/assets/certificates/it-sprint-2025-case-winner.png" alt="Диплом победителя кейса ИТ-Спринт 2025" width="46%">
 </p>
 
 ---
