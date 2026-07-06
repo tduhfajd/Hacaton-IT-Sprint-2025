@@ -1520,6 +1520,7 @@ curl https://api-smartsupport.vadimevgrafov.ru/api/appeals/tracking/APMH9BV55JYO
 ## 📞 Контакты
 
 - **Landing:** https://smartsupport.vadimevgrafov.ru
+- **Портфолио автора:** https://vadimevgrafov.ru
 - **Репозиторий:** `ssh://gitlab.vadimevgrafov.ru:2224/it-sprint/it-support.git`
 
 ---
